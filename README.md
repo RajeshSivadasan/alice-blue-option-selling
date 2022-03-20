@@ -1,4 +1,4 @@
-# Fully automated Alice Blue Algo Trading program with Python on NSE and MCX for Nifty / Banknifty Options Selling
+# (Work In Progress) Fully automated Alice Blue Algo Trading program with Python on NSE and MCX for Nifty / Banknifty Options Selling
 Please use this only for reference and at your own risk. This repository contains python code to perform algo trading on India, NSE through AliceBlue broker. 
 You need to have a valid AliceBlue client ID, password, 2FA authentication password set and API enabled (ask aliceblue support) to get this working.
 This program is developed on AWS linux (ubuntu) platform
