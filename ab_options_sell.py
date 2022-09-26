@@ -80,8 +80,9 @@ import threading
 # Manual Activities
 # Frequency - Monthly , Change Symbol of nifty/bank in .ini
 
-# Enable logging to file 
-sys.stdout = sys.stderr = open(r"./log/ab_options_sell_" + datetime.datetime.now().strftime("%Y%m%d") +".log" , "a")
+# Enable logging to file
+LOG_FILE = r"./log/ab_options_sell_" + datetime.datetime.now().strftime("%Y%m%d") +".log"
+sys.stdout = sys.stderr = open(LOG_FILE, "a")
 
 
 ######################################
@@ -95,15 +96,15 @@ cfg.read(INI_FILE)
 # Set user profile; Access token and other user specific info from .ini will be pulled from this section
 ab_lib.strChatID = cfg.get("tokens", "chat_id")
 ab_lib.strBotToken = cfg.get("tokens", "options_bot_token")    #Bot include "bot" prefix in the token
-strMsg = "Initialising " + __file__
-iLog(strMsg,sendTeleMsg=True)
+
+iLog(f"Initialising : {__file__}",sendTeleMsg=True)
+iLog(f"Logging info into : {LOG_FILE}")
 
 
 # crontabed this at 9.00 am instead of 8.59 
 # Set initial sleep time to match the bank market opening time of 9:00 AM to avoid previous junk values
 init_sleep_seconds = int(cfg.get("info", "init_sleep_seconds"))
-strMsg = "Setting up initial sleep time of " + str(init_sleep_seconds) + " seconds."
-iLog(strMsg,sendTeleMsg=True)
+iLog(f"Setting up initial sleep time of {init_sleep_seconds} seconds.",sendTeleMsg=True)
 time.sleep(init_sleep_seconds)
 
 susername = cfg.get("tokens", "uid")
@@ -356,7 +357,7 @@ def place_sl_order(main_order_id, nifty_bank, ins_opt):
                         return   #Exit out of the procedure
 
         except Exception as ex:
-            print("In place_sl_order(): Exception = ",ex,flush=True)
+            iLog(f"In place_sl_order(): Exception = {ex}")
         
         if order_executed : break   #break while loop
 
@@ -499,7 +500,7 @@ def sell_signal(ins_scrip,qty,limit_price,stop_loss_abs,target_abs,trailing_sl_a
           
     except Exception as ex:
             # print("Exception occured in sell_signal():",ex,flush=True)
-            iLog("Exception occured in sell_signal():"+str(ex),3)
+            iLog(f"Exception occured in sell_signal(): {ex}",3)
     #print("sell_signal():ins_scrip,qty,limit_price,stop_loss_abs,target_abs,trailing_sl_abs:",ins_scrip,qty,limit_price,stop_loss_abs,target_abs,trailing_sl_abs,flush=True)
     
     return ord_obj
@@ -780,7 +781,7 @@ def close_all_orders(opt_index="ALL",buy_sell="ALL",ord_open_time=0):
         for oms_order_id, value in dict_sl_orders.items():
             if value[2][2][:5]+"_"+value[2][2][-2:] == opt_index:
                 # dict_sl_orders => key=order ID : value = [0-token, 1-target price, 2-instrument, 3-quantity, 4-SL Price]
-                alice.modify_order(TransactionType.Sell,value[2],ProductType.Intraday,oms_order_id,OrderType.Market,value[3], 0.0)
+                alice.modify_order(TransactionType.Sell,value[2],ProductType.Delivery,oms_order_id,OrderType.Market,value[3], 0.0)
                 iLog(f"close_all_orders(): Squareoff - Triggered market order for {opt_index} with order id = {oms_order_id}")
 
         return
@@ -1060,7 +1061,7 @@ def get_option_tokens(nifty_bank="ALL"):
             # print("nifty50=",nifty50,flush=True)
 
             nifty_atm = round(int(nifty50),-2)
-            print("nifty_atm=",nifty_atm,flush=True)
+            iLog(f"nifty_atm={nifty_atm}")
 
             strike_ce = float(nifty_atm - nifty_strike_ce_offset)   #ITM Options
             strike_pe = float(nifty_atm + nifty_strike_pe_offset)
@@ -1072,8 +1073,7 @@ def get_option_tokens(nifty_bank="ALL"):
             alice.subscribe(ins_nifty_ce, LiveFeedType.COMPACT)
             alice.subscribe(ins_nifty_pe, LiveFeedType.COMPACT)
             
-            print("ins_nifty_ce=",ins_nifty_ce,flush=True)
-            print("ins_nifty_pe=",ins_nifty_pe,flush=True)
+            iLog(f"ins_nifty_ce={ins_nifty_ce}, ins_nifty_pe={ins_nifty_pe}")
 
             token_nifty_ce = int(ins_nifty_ce[1])
             token_nifty_pe = int(ins_nifty_pe[1])
@@ -1082,7 +1082,7 @@ def get_option_tokens(nifty_bank="ALL"):
             # print("token_nifty_pe=",token_nifty_pe,flush=True)
 
         else:
-            print("len(lst_nifty_ltp)=",len(lst_nifty_ltp),flush=True)
+            iLog(f"len(lst_nifty_ltp)={len(lst_nifty_ltp)}")
 
     if nifty_bank=="BANK" or nifty_bank=="ALL":
         if len(lst_bank_ltp)>0:
@@ -1090,7 +1090,7 @@ def get_option_tokens(nifty_bank="ALL"):
             # print("Bank50=",bank50,flush=True)
 
             bank_atm = round(int(bank50),-2)
-            print("bank_atm=",bank_atm,flush=True)
+            iLog(f"bank_atm={bank_atm}")
 
             strike_ce = float(bank_atm - bank_strike_ce_offset) #ITM Options
             strike_pe = float(bank_atm + bank_strike_pe_offset)
@@ -1101,8 +1101,7 @@ def get_option_tokens(nifty_bank="ALL"):
             alice.subscribe(ins_bank_ce, LiveFeedType.COMPACT)
             alice.subscribe(ins_bank_pe, LiveFeedType.COMPACT)
             
-            print("ins_bank_ce=",ins_bank_ce,flush=True)
-            print("ins_bank_pe=",ins_bank_pe,flush=True)
+            iLog(f"ins_bank_ce={ins_bank_ce}, ins_bank_pe={ins_bank_pe}")
 
             token_bank_ce = int(ins_bank_ce[1])
             token_bank_pe = int(ins_bank_pe[1])
@@ -1111,17 +1110,15 @@ def get_option_tokens(nifty_bank="ALL"):
             # print("token_bank_pe=",token_bank_pe,flush=True)
 
         else:
-            print("len(lst_bank_ltp)=",len(lst_bank_ltp),flush=True)
+            iLog(f"len(lst_bank_ltp)={len(lst_bank_ltp)}")
 
     time.sleep(2)
     
     if nifty_bank=="NIFTY" or nifty_bank=="ALL":
-        print("ltp_nifty_ATM_CE=",ltp_nifty_ATM_CE,flush=True)
-        print("ltp_nifty_ATM_PE=",ltp_nifty_ATM_PE,flush=True)        
+        iLog(f"ltp_nifty_ATM_CE={ltp_nifty_ATM_CE}, ltp_nifty_ATM_PE={ltp_nifty_ATM_PE}")        
     
     if nifty_bank=="BANK" or nifty_bank=="ALL":
-        print("ltp_bank_ATM_CE=",ltp_bank_ATM_CE,flush=True)
-        print("ltp_bank_ATM_PE=",ltp_bank_ATM_PE,flush=True)  
+        iLog(f"ltp_bank_ATM_CE={ltp_bank_ATM_CE}, ltp_bank_ATM_PE={ltp_bank_ATM_PE}")  
 
 def check_orders():
     ''' 1. Checks for pending SL orders and update/maintain local sl order dict 
@@ -1257,8 +1254,8 @@ alice = AliceBlue(username = susername,session_id = session_id, master_contracts
 ins_nifty = alice.get_instrument_by_symbol('NSE', 'NIFTY 50')
 ins_bank = alice.get_instrument_by_symbol('NSE', 'NIFTY BANK')
 
-print(f"ins_nifty={ins_nifty}")
-print(f"ins_bank={ins_bank}")
+iLog(f"ins_nifty={ins_nifty}")
+iLog(f"ins_bank={ins_bank}")
 
 
 #Temp assignment for CE/PE instrument tokens
@@ -1279,8 +1276,7 @@ ins_bank_opt = ins_bank
 # exit()
 
 # Start Websocket
-strMsg = "Starting Websocket."
-iLog(strMsg,sendTeleMsg=True)
+iLog("Starting Websocket.",sendTeleMsg=True)
 alice.start_websocket(subscribe_callback=event_handler_quote_update,
                       socket_open_callback=open_callback,
                       socket_close_callback=close_callback,
@@ -1311,10 +1307,7 @@ get_option_tokens("ALL")
 # print("Done.")
 # exit()
 
-
-strMsg = "Starting tick processing."
-iLog(strMsg,sendTeleMsg=True)
-
+iLog("Starting tick processing.",sendTeleMsg=True)
 
 
 # Process tick data/indicators and generate buy/sell and execute orders
@@ -1524,7 +1517,7 @@ while True:
                 set_config_value("realtime","trade_nfo","1")
         
             savedata()      # Export dataframe data, both 
-            iLog("Shutter down... Calling sys.exit() @ " + str(cur_HHMM),sendTeleMsg=True)
+            iLog("Closing down... Calling sys.exit() @ " + str(cur_HHMM),sendTeleMsg=True)
             sys.exit()
    
 
