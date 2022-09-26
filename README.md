@@ -2,7 +2,7 @@
 Please use this only for reference and at your own risk. This repository contains python code to perform algo trading on India, NSE through AliceBlue broker. 
 You need to have a valid AliceBlue client ID, password, 2FA authentication password set and API enabled (ask aliceblue support) to get this working.
 This program is developed on AWS linux (ubuntu) platform
-1. Usage : > python ab_options_sell.py
+1. (WIP) Usage : > python ab_options_sell.py
 
 You can read through the comments in the ab_options_selling.py for detailed understanding. 
 
