@@ -1,18 +1,20 @@
 # pylint: disable=unused-wildcard-import
-
+# Google Sheets API
+# pip install --upgrade google-api-python-client google-auth-httplib2 google-auth-oauthlib
+# https://developers.google.com/sheets/api/quickstart/python
 
 ###### STRATEGY / TRADE PLAN #####
-# Trading Style : Intraday / positional depending on the MTM if negative.
-# Trade Timing : Morning 9:15 to 10:40 AM , After noon 1.30 PM to 3.30 PM 
-# Trading Capital : Rs 6,60,000 approx
-# Trading Qty : Min upto 6 lots
+# Trading Style     : Intraday. Positional if MTM is negative.
+# Trade Timing      : Regular Market hours 
+# Trading Capital   : Rs 6,60,000 approx
+# Trading Qty       : Min upto 6 lots
 # Premarket Routine : TBD
-# Trading Goals : Short max Nifty OTM Call/Put < 100   
-# Time Frame : 1 min
-# Entry Criteria : <>
-# Exit Criteria : <>  
-# Risk Capacity : <>
-# Order Management : BO orders else MIS/Normal(may need additional exit criteria)
+# Trading Goals     : Short max Nifty OTM Call/Put < 100   
+# Time Frame        : 2 min
+# Entry Criteria    : Entry post 10.30 AM / Price Action = Sell CE; Price Action SELL PE
+# Exit Criteria     : Book 75% at 30 ponts gain/nearest Pivot Level-10pts (Whichever is earliest), rest based on Nearest Pivot Level - 10pts  
+# Risk Capacity     : Not applicable :-) . Always use next week expiry to be safe and if price goes above 150, switch to next expiry
+# Order Management  : Only target orders set; Manually manage -ve MTM (Use Mean reversion/Adjust to next strikes)
 
 # Supertrend Buy signal will trigger ATM CE buy
 # Supertrend Sell signal will trigger ATM PE buy 
@@ -62,27 +64,36 @@
 # Avoid manual trades
 
 # To Manually run program use following command
-# python3 ab.py &
+# python3 ab_options_sell.py &
 
 
-# Release notes for ab_options.py
+# To do
+# Source list of NSE holidays from public url file like on github 
 
 
 # from pandas.core.indexing import is_label_like
 import ab_lib
 from ab_lib import *
+from pya3 import *
 import sys
+import datetime
 import time
-import threading
+# import threading
 
-# Reduce position to cut loss if price is going against the trade, can close BO1
+from nsepy import get_history
 
-# Manual Activities
-# Frequency - Monthly , Change Symbol of nifty/bank in .ini
+
+
+
+
+
+# Manual Activities to be performed
+# ---------------------------------
+# Frequency - Yearly, Update [Info] -> weekly_expiry_holiday_dates in .ini
 
 # Enable logging to file
 LOG_FILE = r"./log/ab_options_sell_" + datetime.datetime.now().strftime("%Y%m%d") +".log"
-sys.stdout = sys.stderr = open(LOG_FILE, "a")
+# sys.stdout = sys.stderr = open(LOG_FILE, "a")
 
 
 ######################################
@@ -93,110 +104,93 @@ INI_FILE = "ab_options_sell.ini"              # Set .ini file name used for stor
 cfg = configparser.ConfigParser()
 cfg.read(INI_FILE)
 
-# Set user profile; Access token and other user specific info from .ini will be pulled from this section
-ab_lib.strChatID = cfg.get("tokens", "chat_id")
-ab_lib.strBotToken = cfg.get("tokens", "options_bot_token")    #Bot include "bot" prefix in the token
+# read_settings_from_url = cfg.get("tokens", "read_settings_from_url").strip()
+read_settings_from_url = 'https://raw.githubusercontent.com/RajeshSivadasan/mysettings/main/ab_options_sell.ini'
+read_settings_from_url = ''
 
-iLog(f"Initialising : {__file__}",sendTeleMsg=True)
-iLog(f"Logging info into : {LOG_FILE}")
+if len(read_settings_from_url) > 5:
+    print(f"Reading settings from url file")
+    pass
+else:
+    print(f"Reading settings from local file {INI_FILE}")
+    # Set user profile; Access token and other user specific info from .ini will be pulled from this section
+    ab_lib.strChatID = cfg.get("tokens", "chat_id")
+    ab_lib.strBotToken = cfg.get("tokens", "options_bot_token")    #Bot include "bot" prefix in the token
 
-
-# crontabed this at 9.00 am instead of 8.59 
-# Set initial sleep time to match the bank market opening time of 9:00 AM to avoid previous junk values
-init_sleep_seconds = int(cfg.get("info", "init_sleep_seconds"))
-iLog(f"Setting up initial sleep time of {init_sleep_seconds} seconds.",sendTeleMsg=True)
-time.sleep(init_sleep_seconds)
-
-susername = cfg.get("tokens", "uid")
-spassword = cfg.get("tokens", "pwd")
-twofa = cfg.get("tokens", "twofa")
-api_secret = cfg.get("tokens", "api_secret")
-api_code = cfg.get("tokens", "api_code")
+    iLog(f"Initialising : {__file__}",sendTeleMsg=True)
+    iLog(f"Logging info into : {LOG_FILE}")
 
 
-# Realtime variables also loaded in get_realtime_config()
-enableBO2_nifty = int(cfg.get("realtime", "enableBO2_nifty"))   # True = 1 (or non zero) False=0 
-enableBO3_nifty = int(cfg.get("realtime", "enableBO3_nifty"))   # True = 1 (or non zero) False=0 
-enableBO2_bank = int(cfg.get("realtime", "enableBO2_bank"))         # BankNifty ;True = 1 (or non zero) False=0 
-enableBO3_bank = int(cfg.get("realtime", "enableBO3_bank"))         # BankNifty ;True = 1 (or non zero) False=0 
-trade_nfo = int(cfg.get("realtime", "trade_nfo"))                 # Trade Nifty options. True = 1 (or non zero) False=0
-trade_bank = int(cfg.get("realtime", "trade_bank"))                 # Trade Bank Nifty options. True = 1 (or non zero) False=0
-nifty_sl = float(cfg.get("realtime", "nifty_sl"))               #15.0 ?
-bank_sl = float(cfg.get("realtime", "bank_sl"))                     #30.0 ?
-mtm_sl = int(cfg.get("realtime", "mtm_sl"))                     #amount below which program exit all positions 
-mtm_target = int(cfg.get("realtime", "mtm_target"))             #amount above which program exit all positions and not take new positions
-nifty_bo1_qty = int(cfg.get("realtime", "nifty_bo1_qty"))
-nifty_bo2_qty = int(cfg.get("realtime", "nifty_bo2_qty"))
-nifty_bo3_qty = int(cfg.get("realtime", "nifty_bo3_qty"))
-bank_bo1_qty = int(cfg.get("realtime", "bank_bo1_qty"))
-bank_bo2_qty = int(cfg.get("realtime", "bank_bo2_qty"))
-bank_bo3_qty = int(cfg.get("realtime", "bank_bo3_qty"))
-sl_buffer = int(cfg.get("realtime", "sl_buffer"))
-nifty_ord_type = cfg.get("realtime", "nifty_ord_type")      # BO / MIS
-bank_ord_type = cfg.get("realtime", "bank_ord_type")      # MIS / BO
+    # crontabed this at 9.00 am instead of 8.59 
+    # Set initial sleep time to match the bank market opening time of 9:00 AM to avoid previous junk values
+    init_sleep_seconds = int(cfg.get("info", "init_sleep_seconds"))
+    iLog(f"Setting up initial sleep time of {init_sleep_seconds} seconds.",sendTeleMsg=True)
+    time.sleep(init_sleep_seconds)
 
-nifty_limit_price_offset = float(cfg.get("realtime", "nifty_limit_price_offset"))
-bank_limit_price_offset = float(cfg.get("realtime", "bank_limit_price_offset"))
+    susername = cfg.get("tokens", "uid")
+    spassword = cfg.get("tokens", "pwd")
+    twofa = cfg.get("tokens", "twofa")
+    api_secret = cfg.get("tokens", "api_secret")
+    api_code = cfg.get("tokens", "api_code")
+    api_key = cfg.get("tokens", "api_key")
 
-nifty_strike_ce_offset = float(cfg.get("realtime", "nifty_strike_ce_offset"))
-nifty_strike_pe_offset = float(cfg.get("realtime", "nifty_strike_pe_offset"))
-bank_strike_ce_offset = float(cfg.get("realtime", "bank_strike_ce_offset"))
-bank_strike_pe_offset = float(cfg.get("realtime", "bank_strike_pe_offset"))
+    # Realtime variables also loaded in get_realtime_config()
+   
+    trade_nifty = int(cfg.get("realtime", "trade_nifty"))                 # Trade Nifty options. True = 1 (or non zero) False=0
+    trade_banknifty = int(cfg.get("realtime", "trade_banknifty"))                 # Trade Bank Nifty options. True = 1 (or non zero) False=0
+    
+    nifty_sl = float(cfg.get("realtime", "nifty_sl"))               #15.0 ?
+    bank_sl = float(cfg.get("realtime", "bank_sl"))                     #30.0 ?
+    
+    mtm_sl = int(cfg.get("realtime", "mtm_sl"))                     #amount below which program exit all positions 
+    mtm_target = int(cfg.get("realtime", "mtm_target"))             #amount above which program exit all positions and not take new positions
+    
+    nifty_limit_price_offset = float(cfg.get("realtime", "nifty_limit_price_offset"))
+    bank_limit_price_offset = float(cfg.get("realtime", "bank_limit_price_offset"))
 
-# nifty_lot_size = int(cfg.get("info", "nifty_lot_size"))
-# criude_lot_size = int(cfg.get("info", "bank_lot_size"))
+    nifty_strike_ce_offset = float(cfg.get("realtime", "nifty_strike_ce_offset"))
+    nifty_strike_pe_offset = float(cfg.get("realtime", "nifty_strike_pe_offset"))
+    bank_strike_ce_offset = float(cfg.get("realtime", "bank_strike_ce_offset"))
+    bank_strike_pe_offset = float(cfg.get("realtime", "bank_strike_pe_offset"))
 
-#List of thurshdays when its NSE holiday, hence reduce 1 day to get expiry date 
-weekly_expiry_holiday_dates = cfg.get("info", "weekly_expiry_holiday_dates").split(",")
+    # nifty_lot_size = int(cfg.get("info", "nifty_lot_size"))
+
+    #List of thursdays when its NSE holiday, hence reduce 1 day to get expiry date 
+    weekly_expiry_holiday_dates = cfg.get("info", "weekly_expiry_holiday_dates").split(",")
 
 
-# Below will be derived dynamically. Would be the ATM strike
-# nifty_symbol = cfg.get("info", "nifty_symbol")
-# bank_symbol = cfg.get("info", "bank_symbol")
+    olhc_duration = int(cfg.get("info", "olhc_duration"))   #3
+    # nifty_sqoff_time = int(cfg.get("info", "nifty_sqoff_time")) #1512 time after which orders not to be processed and open orders to be cancelled
+    # bank_sqoff_time = int(cfg.get("info", "bank_sqoff_time")) #2310 time after which orders not to be processed and open orders to be cancelled
 
-nifty_tgt1 = float(cfg.get("info", "nifty_tgt1"))   #30.0
-nifty_tgt2 = float(cfg.get("info", "nifty_tgt2"))   #60.0 medium target
-nifty_tgt3 = float(cfg.get("info", "nifty_tgt3"))   #150.0 high target
-bank_tgt1 = float(cfg.get("info", "bank_tgt1"))     #30.0
-bank_tgt2 = float(cfg.get("info", "bank_tgt2"))     #90.0
-bank_tgt3 = float(cfg.get("info", "bank_tgt2"))     #200.0
+    nifty_tsl = int(cfg.get("info", "nifty_tsl"))   #Trailing Stop Loss for Nifty
+    bank_tsl = int(cfg.get("info", "bank_tsl"))     #Trailing Stop Loss for BankNifty
 
-olhc_duration = int(cfg.get("info", "olhc_duration"))   #3
-nifty_sqoff_time = int(cfg.get("info", "nifty_sqoff_time")) #1512 time after which orders not to be processed and open orders to be cancelled
-# bank_sqoff_time = int(cfg.get("info", "bank_sqoff_time")) #2310 time after which orders not to be processed and open orders to be cancelled
+    premarket_advance = int(cfg.get("info", "premarket_advance"))
+    premarket_decline = int(cfg.get("info", "premarket_decline"))
+    premarket_flag = int(cfg.get("info", "premarket_flag"))          # whether premarket trade enabled  or not 1=yes
 
-nifty_tsl = int(cfg.get("info", "nifty_tsl"))   #Trailing Stop Loss for Nifty
-bank_tsl = int(cfg.get("info", "bank_tsl"))     #Trailing Stop Loss for BankNifty
-rsi_buy_param = int(cfg.get("info", "rsi_buy_param"))   #may need exchange/indicator specific; ML on this?
-rsi_sell_param = int(cfg.get("info", "rsi_sell_param"))
-premarket_advance = int(cfg.get("info", "premarket_advance"))
-premarket_decline = int(cfg.get("info", "premarket_decline"))
-premarket_flag = int(cfg.get("info", "premarket_flag"))          # whether premarket trade enabled  or not 1=yes
-nifty_last_close = float(cfg.get("info", "nifty_last_close"))
-# file_bank = cfg.get("info", "file_bank")
 
-# Below 2 Are Base Flag For nifty /bank nifty trading_which is used to reset daily(realtime) flags(trade_nfo,trade_bank) as 
-# they might have been changed during the day in realtime 
-enable_bank = int(cfg.get("info", "enable_bank"))                         # 1=Original flag for BANKNIFTY trading. Daily(realtime) flag to be reset eod based on this.  
-enable_NFO = int(cfg.get("info", "enable_NFO"))                         # 1=Original flag for Nifty trading. Daily(realtime) flag to be reset eod based on this.
-enable_bank_data = int(cfg.get("info", "enable_bank_data"))               # 1=CRUDE data subscribed, processed and saved/exported 
-enable_NFO_data = int(cfg.get("info", "enable_NFO_data"))               # 1=NIFTY data subscribed, processed and saved/exported
-file_nifty = cfg.get("info", "file_nifty")
-file_nifty_med = cfg.get("info", "file_nifty_med")
-file_bank = cfg.get("info", "file_bank")
-file_bank_med = cfg.get("info", "file_bank_med")
-no_of_trades_limit = int(cfg.get("info", "no_of_trades_limit"))         # 2 BOs trades per order; 6 trades for 3 orders
-pending_ord_limit_mins = int(cfg.get("info", "pending_ord_limit_mins")) # Close any open orders not executed beyond the set limit
+    # Below 2 Are Base Flag For nifty /bank nifty trading_which is used to reset daily(realtime) flags(trade_nifty,trade_banknifty) as 
+    # they might have been changed during the day in realtime 
+    enable_bank = int(cfg.get("info", "enable_bank"))               # 1=Original flag for BANKNIFTY trading. Daily(realtime) flag to be reset eod based on this.  
+    enable_NFO = int(cfg.get("info", "enable_NFO"))                 # 1=Original flag for Nifty trading. Daily(realtime) flag to be reset eod based on this.
+    
+    
+    no_of_trades_limit = int(cfg.get("info", "no_of_trades_limit"))         # 2 BOs trades per order; 6 trades for 3 orders
+    
+    # pending_ord_limit_mins = int(cfg.get("info", "pending_ord_limit_mins")) # Close any open orders not executed beyond the set limit
 
-# curde_trade_start_time = int(cfg.get("info", "curde_trade_start_time"))
-# curde_trade_end_time = int(cfg.get("info", "curde_trade_end_time"))
-nifty_trade_start_time = int(cfg.get("info", "nifty_trade_start_time"))
-nifty_trade_end_time = int(cfg.get("info", "nifty_trade_end_time"))
-sl_wait_time = int(cfg.get("info", "sl_wait_time"))
-nifty_limit_price_low = int(cfg.get("info", "nifty_limit_price_low"))
-nifty_limit_price_high = int(cfg.get("info", "nifty_limit_price_high"))
-bank_limit_price_low = int(cfg.get("info", "bank_limit_price_low"))
-bank_limit_price_high = int(cfg.get("info", "bank_limit_price_high"))
+
+    # nifty_trade_start_time = int(cfg.get("info", "nifty_trade_start_time"))
+    # nifty_trade_end_time = int(cfg.get("info", "nifty_trade_end_time"))
+
+    # sl_wait_time = int(cfg.get("info", "sl_wait_time"))
+    # nifty_limit_price_low = int(cfg.get("info", "nifty_limit_price_low"))
+    # nifty_limit_price_high = int(cfg.get("info", "nifty_limit_price_high"))
+    # bank_limit_price_low = int(cfg.get("info", "bank_limit_price_low"))
+    # bank_limit_price_high = int(cfg.get("info", "bank_limit_price_high"))
+
 
 
 # Lists to store ltp ticks from websocket
@@ -208,9 +202,7 @@ socket_opened = False
 
 # Counters for dataframe indexes
 df_nifty_cnt = 0           
-df_nifty_med_cnt = 0       
 df_bank_cnt = 0
-df_bank_med_cnt = 0   
 
 
 df_cols = ["cur_HHMM","open","high","low","close","signal","sl"]  # v1.1 added signal column
@@ -218,17 +210,13 @@ df_cols = ["cur_HHMM","open","high","low","close","signal","sl"]  # v1.1 added s
 df_nifty = pd.DataFrame(data=[],columns=df_cols)        # Low - to store 3 mins level OHLC data for nifty
 df_bank = pd.DataFrame(data=[],columns=df_cols)         # Low - to store 3 mins level OHLC data for banknifty
 
-df_bank_med = pd.DataFrame(data=[],columns=df_cols)     # Medium - to store 6 mins level OHLC data bn
-df_nifty_med = pd.DataFrame(data=[],columns=df_cols)    # Medium - to store 6 mins level OHLC nifty
-
 dict_ltp = {}                   # Will contain dictionary of token and ltp pulled from websocket
 dict_sl_orders = {}             # Dictionary to store SL Order ID: token,target price, instrument, quantity; if ltp > target price then update the SL order limit price.
 
 # lst_nifty = []  
 cur_min = 0
 flg_min = 0
-flg_med_nifty = 0               # Flag for avoiding consecutive orders when medium signal is generated 
-flg_med_bank = 0
+
 MTM = 0.0                       # Float
 pos_bank_ce = 0                 # current banknifty CE position 
 pos_nifty_ce = 0                # current nifty CE position
@@ -236,11 +224,8 @@ pos_bank_pe = 0                 # current banknifty PE position
 pos_nifty_pe = 0                # current nifty PE position
 
 
-super_trend_nifty = []          # Supertrend list Nifty
-super_trend_bank = []           # Supertrend list BankNifty
 interval = olhc_duration        # Time interval of candles in minutes; 3 
 processNiftyEOD = False         # Process pending Nifty order cancellation and saving of df data; Flag to run procedure only once
-export_data = 0                 # Realtime export of bn and nifty dataframe; triggered through .ini; reset to 0 after export
 
 
 token_nifty_ce = 1111           # Set by get instrument later in the code
@@ -254,6 +239,8 @@ ltp_nifty_ATM_PE = 0            # Last traded price for Nifty ATM PE
 ltp_bank_ATM_CE = 0             # Last traded price for BankNifty ATM CE
 ltp_bank_ATM_PE = 0             # Last traded price for BankNifty ATM PE
 
+subscribe_list = []             # List of instruments currently being subscribed
+
 
 ############################################################################
 #       Define Functions
@@ -261,26 +248,21 @@ ltp_bank_ATM_PE = 0             # Last traded price for BankNifty ATM PE
 def get_realtime_config():
     '''This procedure can be called during execution to get realtime values from the .ini file'''
 
-    global trade_nfo, trade_bank, enableBO2_bank, enableBO2_nifty, enableBO3_nifty,nifty_limit_price_offset,bank_limit_price_offset\
+    global trade_nifty, trade_banknifty, nifty_limit_price_offset,bank_limit_price_offset\
     ,mtm_sl,mtm_target, cfg, nifty_sl, bank_sl, export_data, sl_buffer, nifty_ord_type, bank_ord_type\
     ,nifty_strike_ce_offset, nifty_strike_pe_offset, bank_strike_ce_offset, bank_strike_pe_offset
 
     cfg.read(INI_FILE)
     
-    trade_nfo = int(cfg.get("realtime", "trade_nfo"))                   # True = 1 (or non zero) False=0
-    trade_bank = int(cfg.get("realtime", "trade_bank"))                 # True = 1 (or non zero) False=0
-    enableBO2_nifty = int(cfg.get("realtime", "enableBO2_nifty"))       # True = 1 (or non zero) False=0
-    enableBO3_nifty = int(cfg.get("realtime", "enableBO3_nifty"))       # True = 1 (or non zero) False=0
-    enableBO2_bank = int(cfg.get("realtime", "enableBO2_bank"))         # True = 1 (or non zero) False=0 
-    nifty_sl = float(cfg.get("realtime", "nifty_sl"))                   #20.0
-    bank_sl = float(cfg.get("realtime", "bank_sl"))                     #15.0
-    export_data = float(cfg.get("realtime", "export_data"))
+    trade_nifty = int(cfg.get("realtime", "trade_nifty"))                   # True = 1 (or non zero) False=0
+    trade_banknifty = int(cfg.get("realtime", "trade_banknifty"))           # True = 1 (or non zero) False=0
+    
+
+    
     mtm_sl = float(cfg.get("realtime", "mtm_sl"))
     mtm_target  = float(cfg.get("realtime", "mtm_target"))
     sl_buffer = int(cfg.get("realtime", "sl_buffer"))
-    nifty_ord_type = cfg.get("realtime", "nifty_ord_type")      # BO / MIS
-    bank_ord_type = cfg.get("realtime", "bank_ord_type")        # MIS / BO
-
+    
     nifty_limit_price_offset = float(cfg.get("realtime", "nifty_limit_price_offset"))
     bank_limit_price_offset = float(cfg.get("realtime", "bank_limit_price_offset"))
 
@@ -288,44 +270,6 @@ def get_realtime_config():
     nifty_strike_pe_offset = float(cfg.get("realtime", "nifty_strike_pe_offset"))
     bank_strike_ce_offset = float(cfg.get("realtime", "bank_strike_ce_offset"))
     bank_strike_pe_offset = float(cfg.get("realtime", "bank_strike_pe_offset"))
-
-def savedata(flgUpdateConfigFile=True):
-    '''flgUpdateConfigFile = True Updates datafilename in the .ini file for nextday reload.
-    
-     In case of intermediary exports you may not want to update the datafile in the .ini file'''
-
-    iLog("In savedata(). Exporting dataframes to .csv files.",6)    # Log as activity
-
-    try:
-        ts_ext = datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + ".csv"
-        if enable_NFO_data:
-            file_nifty = "./data/NIFTY_OPT_" + ts_ext 
-            file_nifty_med = "./data/NIFTY_OPT_MED_" + ts_ext
-            df_nifty.to_csv(file_nifty,index=False)
-            df_nifty_med.to_csv(file_nifty_med,index=False)
-
-        if enable_bank_data:
-            file_bn = "./data/BN_" + ts_ext
-            file_bn_med = "./data/BN_MED_" + ts_ext
-            df_bank.to_csv(file_bn,index=False)
-            df_bank_med.to_csv(file_bn_med,index=False)
-
-        # Save nifty and bn filenames for use in next day to load last 10 rows
-        if flgUpdateConfigFile :
-            if enable_NFO_data:
-                cfg.set("info","file_nifty",file_nifty)
-                cfg.set("info","file_nifty_med",file_nifty_med)
-            
-            if enable_bank_data:
-                cfg.set("info","file_bn",file_bn)
-                cfg.set("info","file_bn_med",file_bn_med)
-
-            with open(INI_FILE, 'w') as configfile:
-                cfg.write(configfile)
-                configfile.close()
-
-    except Exception as ex:
-        iLog("In savedata(). Exception occured = " + str(ex),3)
 
 def place_sl_order(main_order_id, nifty_bank, ins_opt):
     ''' 1. This procedure checks if the main_order_id is executed till the wait time is over
@@ -536,8 +480,8 @@ def buy_nifty_options(strMsg):
         iLog(strMsg,2,sendTeleMsg=True)
         return
     
-    if not trade_nfo:
-        strMsg = strMsg + " buy_nifty(): trade_nfo=0. Order not initiated."
+    if not trade_nifty:
+        strMsg = strMsg + " buy_nifty(): trade_nifty=0. Order not initiated."
         iLog(strMsg,2,sendTeleMsg=True)
         return
 
@@ -660,8 +604,8 @@ def buy_bank_options(strMsg):
         iLog(strMsg,2,sendTeleMsg=True)
         return
 
-    if not trade_bank :
-        strMsg = strMsg + " buy_bank(): trade_bank=0. Order not initiated."
+    if not trade_banknifty :
+        strMsg = strMsg + " buy_bank(): trade_banknifty=0. Order not initiated."
         iLog(strMsg,2,sendTeleMsg=True)
         return
 
@@ -746,27 +690,22 @@ def buy_bank_options(strMsg):
         iLog(strMsg,sendTeleMsg=True)
 
 def subscribe_ins():
-    global alice,ins_nifty,ins_bank
-
     try:
-        if enable_NFO_data : 
-            # Check if one cal
+        if trade_nifty : 
             alice.subscribe(ins_nifty, LiveFeedType.TICK_DATA)
             alice.subscribe(ins_nifty_ce, LiveFeedType.TICK_DATA)
             alice.subscribe(ins_nifty_pe, LiveFeedType.TICK_DATA)
+            iLog(f"subscribed to {ins_nifty}, {ins_nifty_ce}, {ins_nifty_pe} ")
 
-        if enable_bank_data : 
-            # Check if one cal
+        if trade_banknifty : 
             alice.subscribe(ins_bank, LiveFeedType.TICK_DATA)
             alice.subscribe(ins_bank_ce, LiveFeedType.TICK_DATA)
             alice.subscribe(ins_bank_pe, LiveFeedType.TICK_DATA)
+            iLog(f"subscribed to {ins_bank}, {ins_bank_ce}, {ins_bank_pe} ")
 
-        # if enable_bn_data : alice.subscribe(ins_bn, LiveFeedType.TICK_DATA)
-        pass     
     except Exception as ex:
         iLog("subscribe_ins(): Exception="+ str(ex),3)
 
-    # print(datetime.datetime.now() ,"In subscribe_ins()",flush=True)
     iLog("subscribe_ins().")
 
 def close_all_orders(opt_index="ALL",buy_sell="ALL",ord_open_time=0):
@@ -809,12 +748,16 @@ def close_all_orders(opt_index="ALL",buy_sell="ALL",ord_open_time=0):
 
     # Get pending orders and cancel them
     try:
-        orders = alice.get_order_history()['data']['pending_orders'] #Get all orders
-        if not orders:
+        orders = alice.get_order_history()  #['data']['pending_orders'] #Get all orders
+        if orders:
+            iLog("Listing of Open orders. No orders cancelled here:")
+            for ord in orders:
+                if ord['Status']=='open':
+                    iLog( f"ord['Trsym']={ord['Trsym']},ord['Nstordno']={ord['Nstordno']},ord['Status']={ord['Status']},ord['Qty']={ord['Qty']}")
+        else:
             # print(datetime.datetime.now(),"In close_all_orders(). No Pending Orders found.",opt_index,flush=True)
             iLog("close_all_orders(): No Pending Orders found for "+ str(opt_index))
             return    
-        # Else is captured below exception
         
     except Exception as ex:
         orders = None
@@ -837,8 +780,8 @@ def close_all_orders(opt_index="ALL",buy_sell="ALL",ord_open_time=0):
 
         else:
             #Cancel all open orders
-            iLog("close_all_orders(): Cancelling all orders ") #+ c_order['oms_order_id'])
-            alice.cancel_all_orders()
+            iLog("close_all_orders(): Cancelling all orders now diabled temporarily.") #+ c_order['oms_order_id'])
+            # alice.cancel_all_orders()
     else:
         for c_order in orders:
             #if c_order['leg_order_indicator']=='' then its actual pending order not leg order
@@ -859,7 +802,7 @@ def check_MTM_Limit():
     .ini. This needs to be called before buy/sell signal generation in processing. 
     Also updates the postion counter for Nifty and bank which are used in buy/sell procs.'''
     
-    global trade_bank, trade_nfo, pos_nifty_ce, pos_nifty_pe, pos_bank_ce, pos_bank_pe
+    global trade_banknifty, trade_nifty, pos_nifty_ce, pos_nifty_pe, pos_bank_ce, pos_bank_pe
 
     trading_symbol = ""
     mtm = 0.0
@@ -901,19 +844,19 @@ def check_MTM_Limit():
     # print(mtm,mtm_sl,mtm_target,flush=True)
 
     # Enable trade flags based on MTM limits set
-    if (mtm < mtm_sl or mtm > mtm_target) and (trade_bank==1 or trade_nfo==1): # or mtm>mtm_target:
-        trade_bank = 0
-        trade_nfo = 0
+    if (mtm < mtm_sl or mtm > mtm_target) and (trade_banknifty==1 or trade_nifty==1): # or mtm>mtm_target:
+        trade_banknifty = 0
+        trade_nifty = 0
         # Stop further trading and set both the trading flag to 0
-        cfg.set("realtime","trade_nfo","0")
-        cfg.set("realtime","trade_bank","0")
+        cfg.set("realtime","trade_nifty","0")
+        cfg.set("realtime","trade_banknifty","0")
 
         try:
             with open(INI_FILE, 'w') as configfile:
                 cfg.write(configfile)
                 configfile.close()
             
-            strMsg = "check_MTM_Limit(): Trade flags set to false. MTM={}, trade_nfo={}, trade_bank={}".format(mtm,trade_nfo,trade_bank)
+            strMsg = "check_MTM_Limit(): Trade flags set to false. MTM={}, trade_nifty={}, trade_banknifty={}".format(mtm,trade_nifty,trade_banknifty)
             iLog(strMsg,6)  # 6 = Activity/Task done
             
         except Exception as ex:
@@ -1043,11 +986,7 @@ def get_option_tokens(nifty_bank="ALL"):
     global token_nifty_ce, token_nifty_pe, ins_nifty_ce, ins_nifty_pe, \
         token_bank_ce, token_bank_pe, ins_bank_ce, ins_bank_pe
 
-    expiry_date = datetime.date.today() + datetime.timedelta( (3-datetime.date.today().weekday()) % 7 )
 
-    # Reduce one day if thurshday is a holiday
-    if str(expiry_date) in weekly_expiry_holiday_dates :
-        expiry_date = expiry_date - datetime.timedelta(days=1)
 
     # print("expiry_date=",expiry_date,flush=True)
     # print("weekly_expiry_holiday_dates=",weekly_expiry_holiday_dates,flush=True)
@@ -1057,7 +996,7 @@ def get_option_tokens(nifty_bank="ALL"):
     if nifty_bank=="NIFTY" or nifty_bank=="ALL":
         if len(lst_nifty_ltp)>0:
           
-            nifty50 = int(lst_nifty_ltp[-1])
+            nifty50 = lst_nifty_ltp[-1]
             # print("nifty50=",nifty50,flush=True)
 
             nifty_atm = round(int(nifty50),-2)
@@ -1066,20 +1005,22 @@ def get_option_tokens(nifty_bank="ALL"):
             strike_ce = float(nifty_atm - nifty_strike_ce_offset)   #ITM Options
             strike_pe = float(nifty_atm + nifty_strike_pe_offset)
 
+            ins_nifty_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=expiry_date.isoformat() , is_fut=False,strike=strike_ce, is_CE=True)
+            ins_nifty_pe = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=expiry_date.isoformat() , is_fut=False,strike=strike_pe, is_CE=False)
 
-            ins_nifty_ce = alice.get_instrument_for_fno(symbol = 'NIFTY', expiry_date=expiry_date, is_fut=False, strike=strike_ce, is_CE = True)
-            ins_nifty_pe = alice.get_instrument_for_fno(symbol = 'NIFTY', expiry_date=expiry_date, is_fut=False, strike=strike_pe, is_CE = False)
+            alice.subscribe([ins_nifty_ce,ins_nifty_pe])
 
-            alice.subscribe(ins_nifty_ce, LiveFeedType.COMPACT)
-            alice.subscribe(ins_nifty_pe, LiveFeedType.COMPACT)
-            
+           
             iLog(f"ins_nifty_ce={ins_nifty_ce}, ins_nifty_pe={ins_nifty_pe}")
 
-            token_nifty_ce = int(ins_nifty_ce[1])
-            token_nifty_pe = int(ins_nifty_pe[1])
+            token_nifty_ce = ins_nifty_ce[1]
+            token_nifty_pe = ins_nifty_pe[1]
 
             # print("token_nifty_ce=",token_nifty_ce,flush=True)
             # print("token_nifty_pe=",token_nifty_pe,flush=True)
+
+            # Calculate pivot points for nitfy option CE and PE
+            calculate_pivot('NIFTY',strike_ce)
 
         else:
             iLog(f"len(lst_nifty_ltp)={len(lst_nifty_ltp)}")
@@ -1188,6 +1129,35 @@ def check_orders():
             except Exception as ex:
                 iLog("In check_orders(): Exception occured during TSL modification = " + str(ex),3)
 
+def calculate_pivot(symbol,strike_price):
+    '''Calculates and sets the pivot points for Nifty'''
+
+    iLog(f"symbol,strike_price={symbol},{strike_price}")
+
+    from_date = datetime.date.today()-datetime.timedelta(days=5)
+    to_date = datetime.date.today()-datetime.timedelta(days=1)
+
+    # symbol="NIFTY" symbol="BANKNIFTY"
+    df_hist_ce = get_history(symbol=symbol, start=from_date, end=to_date, index=True, option_type='CE', strike_price=strike_price,
+                expiry_date=expiry_date)[['Open','High','Low','Close']]
+
+    iLog("df_hist_ce=")
+    iLog(df_hist_ce)
+    
+    nifty_opt_ce_last_high = df_hist_ce.iloc[-1].High
+    nifty_opt_ce_last_low = df_hist_ce.iloc[-1].Low
+    nifty_opt_ce_last_close = df_hist_ce.iloc[-1].Close
+
+    nifty_opt_ce_range = nifty_opt_ce_last_high - nifty_opt_ce_last_low
+    nifty_opt_ce_pp = round((nifty_opt_ce_last_high + nifty_opt_ce_last_low + nifty_opt_ce_last_close)/3)
+    nifty_opt_ce_r1 = round((2 * nifty_opt_ce_pp) - nifty_opt_ce_last_low)
+    nifty_opt_ce_r2 = round(nifty_opt_ce_pp + nifty_opt_ce_range)
+    nifty_opt_ce_r3 = round(nifty_opt_ce_pp + 2 * nifty_opt_ce_range)
+    # ???? Check if we need to divide / 2 and then round
+    nifty_opt_ce_r4 = nifty_opt_ce_r3 + round((nifty_opt_ce_r3 - nifty_opt_ce_r2))  
+
+    iLog(f"Pivot Points for {symbol}{strike_price}:")
+    iLog(f"{nifty_opt_ce_pp}, {nifty_opt_ce_r1}, {nifty_opt_ce_r2}, {nifty_opt_ce_r3}, {nifty_opt_ce_r4}")
 
 ########################################################################
 #       Alice Blue Socket Events
@@ -1195,43 +1165,54 @@ def check_orders():
 def event_handler_quote_update(message):
     global dict_ltp, lst_bank_ltp,ltp_bank_ATM_CE,ltp_bank_ATM_PE, lst_nifty_ltp, ltp_nifty_ATM_CE, ltp_nifty_ATM_PE
 
-    # if(message['exchange']=='MCX'): 
-    #     lst_bank_ltp.append(message['ltp'])
-    # print("message['token'],token_nifty_ce",message['token'],token_nifty_ce)
-    if(message['token']==token_nifty_ce):
-        ltp_nifty_ATM_CE=message['ltp']
 
-    if(message['token']==token_nifty_pe):
-        ltp_nifty_ATM_PE=message['ltp']
+    feed_message = json.loads(message)
+    # print(feed_message)
+    
+    # print(f"token_nifty_ce={token_nifty_ce}")
+    if(feed_message["tk"]==str(token_nifty_ce)):
+        print(feed_message)
+        ltp_nifty_ATM_CE = float(feed_message['lp'] if 'lp' in feed_message else ltp_nifty_ATM_CE)
+        # ltp_nifty_ATM_CE = float(feed_message["lp"])
+        iLog(f"ltp_nifty_ATM_CE={ltp_nifty_ATM_CE}")
 
-    if(message['token']==token_bank_ce):
-        ltp_bank_ATM_CE=message['ltp']
-
-    if(message['token']==token_bank_pe):
-        ltp_bank_ATM_PE=message['ltp']
+    # if(message['token']==token_nifty_ce):
+    #     ltp_nifty_ATM_CE=message['ltp']
 
 
-    #For Nifty 50, token number should ideally not change
-    if(message['token']==26000):
-        lst_nifty_ltp.append(message['ltp'])
+    # if(message['token']==token_nifty_pe):
+    #     ltp_nifty_ATM_PE=message['ltp']
 
-    #For BankNifty 50,
-    if(message['token']==26009):
-        lst_bank_ltp.append(message['ltp'])
+    # if(message['token']==token_bank_ce):
+    #     ltp_bank_ATM_CE=message['ltp']
 
-    #Update the ltp for all the tokens
-    dict_ltp.update({message['token']:message['ltp']})
+    # if(message['token']==token_bank_pe):
+    #     ltp_bank_ATM_PE=message['ltp']
+
+    #For Nifty 50, 
+    if(feed_message["tk"]=="26000"):
+        print("len(lst_nifty_ltp)=",len(lst_nifty_ltp))
+        # print(lst_nifty_ltp[-1])
+        lst_nifty_ltp.append(float(feed_message['lp'] if 'lp' in feed_message else lst_nifty_ltp[-1]))
+        # lst_nifty_ltp.append(float(feed_message["lp"]))
+        print(lst_nifty_ltp)
+
+    # #For BankNifty 50,
+    # if(message["tk"]=="26009"):
+    #     lst_bank_ltp.append(message["lp"])
+
+    # #Update the ltp for all the tokens
+    # dict_ltp.update({message['token']:message['ltp']})
 
 def open_callback():
     global socket_opened
     socket_opened = True
     iLog("In open_callback().")
     # Call the instrument subscription
-    subscribe_ins()   # Can move to main program in case of tick discontinuation issue is not noticed
+    # subscribe_ins()   # Can move to main program in case of tick discontinuation issue is not noticed
     
-
 def error_callback(error):
-    iLog("In error_callback(). {}".format(error),3)
+    iLog(f"In error_callback().error={error}",3)
   
 def close_callback():
     iLog("In close_callback().")
@@ -1241,22 +1222,70 @@ def close_callback():
 iLog("User = " + susername)
 #print(str(datetime.datetime.now().strftime("%H:%M:%S")) + ' : '+susername,flush=True)
 
-# Get session id
-session_id = AliceBlue.login_and_get_sessionID(username=susername, password=spassword, twoFA = twofa,app_id = api_code,api_secret = api_secret)
+# pya3
+alice = Aliceblue(user_id=susername,api_key=api_key)
+session_id = alice.get_session_id() # Get Session ID
 
-# print(f"session_id={session_id}")
+# To reuse pya3 session
+# session_id = 'FjpN4X03GyLL8XUGNFhJuNJ0Cqqr3Zj765b9XqRDzJult9ThGs6OXi2VQgT3otybKyX8Ja0WMVXlxmXjYCsnMygFepe55me3hkVD7843GfnJxu6Ep7BCq9SZtE1slvU51zSCQCVoXEyWPAQyEr7VGyu2m6VI0WiT6OkAJe8JKXtdsVdyLClvK8zcQmzvm2ztenY57bFeG9oogn1I2yG2Yz1xkYBxh2yDyJbHvOGVmXXMYXi5XGvHytnck0ZuxGpj'
+# alice = Aliceblue(user_id=susername,api_key=api_key,session_id=session_id)
+
+# Krishnavelu
+# Get session id
+# session_id = AliceBlue.login_and_get_sessionID(username=susername, password=spassword, twoFA = twofa,app_id = api_code,api_secret = api_secret)
+# session_id='pb23iGBuPeCntXLvZUBkjiE9ODYuMLPhR2YHCuDtEMgaIte2OKWoV56peXCr3g5vug6YYd1ESuIeUEzfWLZEicPmH3sPZENyvxQotDMSgIyszrg8FKDRv54aGzpLI4nhdrAQtpm2TbajetoFd45vptTkFqVSQUyAye8pqnaRsa4Z8sI3TZ253mac9qW2JW47IxGsWY9gJqsL82kdk44Rx4XPGYaj0H1ycsBRiYQHoMaCTQlCaShITB1Zj9xhsf4R'
 
 # use session id to create alice object, Connect to AliceBlue and download contracts
-alice = AliceBlue(username = susername,session_id = session_id, master_contracts_to_download=['NFO','NSE'])
+# alice = AliceBlue(username = susername,session_id = session_id, master_contracts_to_download=['NFO','NSE','MCX'])
+# alice = AliceBlue(username = susername,session_id = session_id)
+
+
+iLog(f"session_id={session_id}")
+
+alice.get_contract_master("INDICES")
+alice.get_contract_master("NSE")
+alice.get_contract_master("NFO")
 
 
 # Get Nifty and BankNifty spot instrument object
-ins_nifty = alice.get_instrument_by_symbol('NSE', 'NIFTY 50')
-ins_bank = alice.get_instrument_by_symbol('NSE', 'NIFTY BANK')
+ins_nifty = alice.get_instrument_by_symbol('INDICES', 'NIFTY 50')
+ins_bank = alice.get_instrument_by_symbol('INDICES', 'NIFTY BANK')
+
+# ins_crude = alice.get_instrument_by_symbol('MCX', 'CRUDEOIL22NOVFUT')
 
 iLog(f"ins_nifty={ins_nifty}")
 iLog(f"ins_bank={ins_bank}")
 
+
+# Start Websocket
+iLog("Starting Websocket.",sendTeleMsg=True)
+
+
+alice.start_websocket(socket_open_callback=open_callback, socket_close_callback=close_callback,
+                      socket_error_callback=error_callback, subscription_callback=event_handler_quote_update, run_in_background=True)
+
+# alice.start_websocket(subscribe_callback=event_handler_quote_update,
+#                     socket_open_callback=open_callback,
+#                     socket_close_callback=close_callback,
+#                     socket_error_callback=error_callback)
+
+
+# alice.start_websocket(subscribe_callback=event_handler_quote_update,socket_open_callback=open_callback)
+
+# Check with Websocket open status
+while(socket_opened==False):
+    pass
+
+
+
+subscribe_list = [ins_nifty]
+print("subscribe_list=",subscribe_list)
+
+alice.subscribe(subscribe_list)
+print("subscried to nifty")
+
+# alice.subscribe(ins_crude, LiveFeedType.TICK_DATA)
+# print("subscried to crude")
 
 #Temp assignment for CE/PE instrument tokens
 ins_nifty_ce = ins_nifty
@@ -1268,59 +1297,55 @@ ins_bank_pe = ins_bank
 ins_bank_opt = ins_bank
 
 
-# Code Test area, can be above access_token generation if testing under maintenance window.
-# sell_bank("Testing")
-# buy_nifty("test")
-# close_all_orders('NIFTY')
-# iLog("Testing Done..")
-# exit()
 
-# Start Websocket
-iLog("Starting Websocket.",sendTeleMsg=True)
-alice.start_websocket(subscribe_callback=event_handler_quote_update,
-                      socket_open_callback=open_callback,
-                      socket_close_callback=close_callback,
-                      socket_error_callback=error_callback)
-
-# Check with Websocket open status
-while(socket_opened==False):
-    pass
-
-
+# Subscribe to Nifty50
+# alice.subscribe(ins_nifty,LiveFeedType.TICK_DATA)
 
 # # Get instrument of Nifty ATM Option
 # ins_nifty50 = alice.get_instrument_by_symbol('NSE', 'Nifty 50')     #Instead of futures get Nifty 50 Index price 
 # print(ins_nifty50,flush=True)
 # alice.subscribe(ins_nifty50, LiveFeedType.COMPACT)
-time.sleep(2)
+
+time.sleep(5)   # Sleep so that tick for the ltp gets accumulated
+
+# subscribe_ins()
+
+# Get next week Expiry date
+expiry_date = datetime.date.today() + datetime.timedelta(((3-datetime.date.today().weekday()) % 7)+7)
+# Reduce one day if thurshday is a holiday
+if str(expiry_date) in weekly_expiry_holiday_dates :
+    expiry_date = expiry_date - datetime.timedelta(days=1)
+
+
+iLog(f"expiry_date={expiry_date}")
 
 # Get ATM /(+-offset) option tokens for Nifty and BankNifty
-get_option_tokens("ALL")
+get_option_tokens("NIFTY")
 
-# ins_options = []
-# ins_options.append(ins_nifty_ce)
-# ins_options.append(ins_nifty_pe)
+# iLog("Done")
+# close_all_orders('NIFTY_CE')
+# sys.exit(0)
 
-# print("Before Subscribe")
-# alice.subscribe(ins_options, LiveFeedType.COMPACT)
-# print("After Subscribe")
-# print("Done.")
-# exit()
 
 iLog("Starting tick processing.",sendTeleMsg=True)
 
 
+
+
+########################################################
+####            MAIN PROGRAM START HERE ...         ####
+########################################################  
 # Process tick data/indicators and generate buy/sell and execute orders
 while True:
     # Process as per start of market timing
     cur_HHMM = int(datetime.datetime.now().strftime("%H%M"))
-    # print("cur_HHMM=",cur_HHMM,flush=True)
+    print("cur_HHMM=",cur_HHMM,flush=True)
 
     if cur_HHMM > 914:
 
         cur_min = datetime.datetime.now().minute 
 
-        # Below if block will run after every time interval specifie in the .ini file
+        # Below if block will run after every time interval specified in the .ini file
         if( cur_min % interval == 0 and flg_min != cur_min):
 
             flg_min = cur_min     # Set the minute flag to run the code only once post the interval
@@ -1338,152 +1363,50 @@ while True:
             MTM = check_MTM_Limit()
            
             
-            if len(lst_bank_ltp) > 1:    #BANKNIFTY Candle
-                tmp_lst = lst_bank_ltp.copy()  #Copy the ticks to a temp list
-                lst_bank_ltp.clear()           #reset the ticks list; There can be gap in the ticks during this step ???
+            if len(lst_bank_ltp) > 1:       # BANKNIFTY Candle
+                tmp_lst = lst_bank_ltp.copy()  # Copy the ticks to a temp list
+                lst_bank_ltp.clear()           # Reset the ticks list; There can be gap in the ticks during this step ???
                 #print(f"CRUDE: cur_min = {cur_min},len(tmp_lst)={len(tmp_lst)},i={i}",flush=True)
                 #Formation of candle
                 df_bank.loc[df_bank_cnt, df_cols]=[cur_HHMM, tmp_lst[0], max(tmp_lst), min(tmp_lst), tmp_lst[-1],"",0]
                 df_bank_cnt = df_bank_cnt + 1 
                 # open = df_bank.close.tail(3).head(1)  # First value  
-                flg_med_bank = 0
                 strMsg = strMsg + " " + str(round(tmp_lst[-1]))      #Crude close 
 
-                if cur_min % 6 == 0 :
-                    df_bank_med.loc[df_bank_med_cnt,df_cols] = [cur_HHMM, df_bank.open.tail(3).head(1).iloc[0], df_bank.high.tail(3).max(), df_bank.low.tail(3).min(), df_bank.close.iloc[-1], "",0 ] 
-                    df_bank_med_cnt = df_bank_med_cnt + 1
-                    # print(df_bank_med,flush=True )
-                    flg_med_bank = 1
                     
-            if len(lst_nifty_ltp) > 1: #and cur_HHMM > 914 and cur_HHMM < 1531:    #Nifty Candle
-                tmp_lst = lst_nifty_ltp.copy()  #Copy the ticks to a temp list
-                lst_nifty_ltp.clear()           #reset the ticks list
+            if len(lst_nifty_ltp) > 1:       # Nifty Candle
+                tmp_lst = lst_nifty_ltp.copy()  # Copy the ticks to a temp list
+                lst_nifty_ltp.clear()           # Reset the ticks list
                 # print(f"NIFTY: cur_min = {cur_min},len(tmp_lst)={len(tmp_lst)}",flush=True)
                 # Formation of candle
                 df_nifty.loc[df_nifty_cnt,df_cols] = [cur_HHMM,tmp_lst[0],max(tmp_lst),min(tmp_lst),tmp_lst[-1],"",0]
                 df_nifty_cnt = df_nifty_cnt + 1
-                flg_med_nifty = 0
                 strMsg = strMsg + " " + str(round(tmp_lst[-1]))      #Nifty close
-
-                if cur_min % 6 == 0 :
-                    df_nifty_med.loc[df_nifty_med_cnt,df_cols] = [cur_HHMM, df_nifty.open.tail(3).head(1).iloc[0], df_nifty.high.tail(3).max(), df_nifty.low.tail(3).min(), df_nifty.close.iloc[-1], "", 0] 
-                    df_nifty_med_cnt = df_nifty_med_cnt + 1
-                    # print(df_nifty_med,flush=True )
-                    flg_med_nifty = 1   # Used to check in the medium ST signal for consecutive orders
 
             # Get realtime config changes from .ini file and reload variables
             get_realtime_config()
 
             strMsg = strMsg + f" POS(n,bn)=({pos_nifty_ce+pos_nifty_pe}, {pos_bank_ce+pos_bank_pe}), MTM={MTM}" 
-
             iLog(strMsg,sendTeleMsg=True)
 
-            # #######################################
-            #           BANKNIFTY Order Generation
-            # #######################################
-            if df_bank_cnt > 6 and cur_HHMM > 914 and cur_HHMM < 1531:        # Calculate Nifty indicators and call buy/sell
 
-                SuperTrend(df_bank)                         # Low level (2/3min) timeframe calculations
-                # RSI not used in this strategy
-                # RSI(df_bank,period=7)                     # RSI Calculations
-                super_trend_bank = df_bank.STX.values       # Get ST values into a list
-                # SuperTrend(df_bank_med)                   # Medium level (6min) timeframe calculations
 
-                strMsg=f"BankNifty: #={df_bank_cnt}, ST_LOW={super_trend_bank[-1]}, ST_LOW_SL={round(df_bank.ST.iloc[-1])}, ATR={round(df_bank.ATR.iloc[-1],1)}, ltp_bank_ATM_CE={ltp_bank_ATM_CE}, ltp_bank_ATM_PE={ltp_bank_ATM_PE}"
+            # ############## BANKNIFTY Order Generation #########################
+            if df_bank_cnt > 6 : 
+
+                # Logic for Buy/Sell will go here
+                strMsg=f"BankNifty: #={df_bank_cnt}, ltp_bank_ATM_CE={ltp_bank_ATM_CE}, ltp_bank_ATM_PE={ltp_bank_ATM_PE}"
                 iLog(strMsg)
 
-                # -- ST LOW
-                #--BUY---BUY---BUY---BUY---BUY---BUY---BUY---BUY---BUY---BUY
-                if super_trend_bank[-1]=='up' and super_trend_bank[-2]=='down' and super_trend_bank[-3]=='down' and super_trend_bank[-4]=='down' and super_trend_bank[-5]=='down' and super_trend_bank[-6]=='down':
-                    buy_bank_options("BANK_CE") 
-  
-                # -- ST LOW        
-                #---SELL---SELL---SELL---SELL---SELL---SELL---SELL---SELL---SELL        
-                elif super_trend_bank[-1]=='down' and super_trend_bank[-2]=='up' and super_trend_bank[-3]=='up' and super_trend_bank[-4]=='up' and super_trend_bank[-5]=='up' and super_trend_bank[-6]=='up':
-                    buy_bank_options("BANK_PE") 
       
-      
-            # Nifty - Only 5 ST values checked in condition as compared to bank
-            # ////////////////////////////////////////
-            #           NIFTY Order Generation
-            # ////////////////////////////////////////
-            if df_nifty_cnt > 6 and cur_HHMM > 914 and cur_HHMM < 1531:        # Calculate Nifty indicators and call buy/sell
+            # ////////////// NIFTY Order Generation //////////////////////////
+            if df_nifty_cnt > 6 : 
 
-                SuperTrend(df_nifty)                        # Low level (2/3min) timeframe calculations
-                # RSI not used in this strategy
-                # RSI(df_nifty,period=7)                    # RSI Calculations
-                super_trend_nifty = df_nifty.STX.values     # Get ST values into a list
-                # SuperTrend(df_nifty_med)                  # Medium level (6min) timeframe calculations
-
-                strMsg=f"Nifty: #={df_nifty_cnt}, ST_LOW={super_trend_nifty[-1]}, ST_LOW_SL={round(df_nifty.ST.iloc[-1])}, ATR={round(df_nifty.ATR.iloc[-1],1)}, ltp_nifty_ATM_CE={ltp_nifty_ATM_CE}, ltp_nifty_ATM_PE={ltp_nifty_ATM_PE}"
+                strMsg=f"Nifty: #={df_nifty_cnt}, ltp_nifty_ATM_CE={ltp_nifty_ATM_CE}, ltp_nifty_ATM_PE={ltp_nifty_ATM_PE}"
                 iLog(strMsg)
 
-                # -- ST LOW
-                #--BUY---BUY---BUY---BUY---BUY---BUY---BUY---BUY---BUY---BUY
-                if super_trend_nifty[-1]=='up' and super_trend_nifty[-2]=='down' and super_trend_nifty[-3]=='down' and super_trend_nifty[-4]=='down' and super_trend_nifty[-5]=='down' and super_trend_nifty[-6]=='down':
-                    buy_nifty_options("NIFTY_CE")
-                    # #print("Nifty close=",df_nifty.close.iloc[-1],flush=True)
-                    # #print("RSI[-1]=",df_nifty.RSI.iloc[-1],flush=True)
-                    # #Buy only if both medium and lower ST is in buy zone
-                    # if df_nifty_med.STX.iloc[-1] == 'down':
-                    #     strMsg = "NIFTY ST=up, ST_MEDIUM=down. Sell order to be placed - Deactivated. Closing existing Nifty positions."
-                    #     iLog(strMsg,sendTeleMsg=True)
-                    #     close_all_orders("NIFTY")
-                    # else:   # ST_MEDIUM=='up'
-                    #     strMsg = "NIFTY ST=up, ST_MEDIUM=up. CE Buy Order to be placed. "
-                    #     iLog(strMsg,sendTeleMsg=True)
-                    #     buy_nifty_options("NIFTY_CE")
-                        # sell_nifty(strMsg)
-                        # Experiment
-                        # Buy 
-                    # elif df_nifty.RSI.iloc[-1] > rsi_buy_param and df_nifty.RSI.iloc[-1] < rsi_sell_param:
 
-                    #     c1 = round((df_nifty.RSI.iloc[-2] - df_nifty.RSI.iloc[-3]) / df_nifty.RSI.iloc[-3], 3 )
-                    #     c2 = round((df_nifty.RSI.iloc[-1] - df_nifty.RSI.iloc[-2]) / df_nifty.RSI.iloc[-2], 3 )
 
-                    #     iLog("NIFTY ST=up - RSI Rate of change c2(latest)={},c1(previous)={}".format(c2,c1))
-                    #     if c2 > c1: #percent Rate of change is increasing 
-                    #         strMsg = "NIFTY ST=up, RSI BUY=" + str(df_nifty.RSI.iloc[-1])
-                    #         # buy_nifty(strMsg)
-                    #         buy_nifty_options("NIFTY_CE")
-                    #     else:
-                    #         strMsg = "NIFTY ST=up - RSI Rate of change not as per trend"
-                    #         iLog(strMsg,sendTeleMsg=True)
-                    # else:
-                    #     strMsg = "NIFTY ST=up, close=" + str(df_nifty.close.iloc[-1]) + ", RSI NOBUY=" + str(df_nifty.RSI.iloc[-1])    
-                    #     iLog(strMsg,sendTeleMsg=True)
-
-                # -- ST LOW        
-                #---SELL---SELL---SELL---SELL---SELL---SELL---SELL---SELL---SELL        
-                elif super_trend_nifty[-1]=='down' and super_trend_nifty[-2]=='up' and super_trend_nifty[-3]=='up' and super_trend_nifty[-4]=='up' and super_trend_nifty[-5]=='up' and super_trend_nifty[-6]=='up':
-                    buy_nifty_options("NIFTY_PE")
-                    # #Sell only if both medium and lower ST is in sell zone
-                    # if df_nifty_med.STX.iloc[-1] == 'up':
-                    #     strMsg = "NIFTY ST=down, ST_MEDIUM='up'. Buy Order to be placed - Deactivated. Closing existing Nifty positions."
-                    #     iLog(strMsg,sendTeleMsg=True)
-                    #     # buy_nifty(strMsg)
-                    #     close_all_orders("NIFTY")
-                    # else:
-                    #     strMsg = "NIFTY ST=down, ST_MEDIUM=down. PE Buy Order to be placed. "
-                    #     iLog(strMsg,sendTeleMsg=True)
-                    #     buy_nifty_options("NIFTY_PE")
-                    # elif df_nifty.RSI.iloc[-1] < rsi_sell_param and df_nifty.RSI.iloc[-1] > rsi_buy_param:
-                        
-                    #     c1 = round( ( df_nifty.RSI.iloc[-2] - df_nifty.RSI.iloc[-3] ) / df_nifty.RSI.iloc[-3] , 3 )
-                    #     c2 = round( ( df_nifty.RSI.iloc[-1] - df_nifty.RSI.iloc[-2] ) / df_nifty.RSI.iloc[-2] , 3 )
-                        
-                    #     iLog("NIFTY ST=down - RSI Rate of change c2(latest)={},c1(previous)={}".format(c2,c1))
-                        
-                    #     if c2 < c1: # percent Rate of change is decreasing
-                    #         strMsg = "NIFTY ST=down, RSI SELL=" + str(df_nifty.RSI.iloc[-1])
-                    #         # sell_nifty(strMsg)
-                    #         buy_nifty_options("NIFTY_PE")
-                    #     else:
-                    #         strMsg = "NIFTY ST=down - RSI Rate of change not as per trend"
-                    #         iLog(strMsg,sendTeleMsg=True)
-                    # else:
-                    #     strMsg = "NIFTY ST=down close=" + str(df_nifty.close.iloc[-1]) +", RSI NOSELL=" + str(df_nifty.RSI.iloc[-1])   
-                    #     iLog(strMsg,sendTeleMsg=True)
 
 
             #-- Find processing time and Log only if processing takes more than 2 seconds
@@ -1492,33 +1415,22 @@ while True:
                 strMsg="Processing time(secs)= {0:.2f}".format(t2)
                 iLog(strMsg,2)
 
-            #-- Export data on demand
-            if export_data:     
-                savedata(False)     # Export dataframe data, both bank and nifty
-                export_data = 0     # Reset config value to 0 in both file and variable
-                set_config_value("realtime","export_data","0")
 
-
-            #-- Cancel Nifty open orders, reset flags save data
-            if cur_HHMM > nifty_sqoff_time and not processNiftyEOD: 
-                close_all_orders()
-                processNiftyEOD = True    # Set this flag so that we don not repeatedely process this
  
 
         if cur_HHMM > 1530 and cur_HHMM < 1532 :   # Exit the program post NSE closure
             # Reset trading flag for bank if bank is enabled on the instance
             if enable_bank : 
                 iLog("Enabling BankNifty trading...")
-                set_config_value("realtime","trade_bank","1")
+                set_config_value("realtime","trade_banknifty","1")
             
             # Reset trading flag for nifty if nifty is enabled on the instance
             if enable_NFO : 
                 iLog("Enabling NFO trading...")
-                set_config_value("realtime","trade_nfo","1")
+                set_config_value("realtime","trade_nifty","1")
         
-            savedata()      # Export dataframe data, both 
             iLog("Closing down... Calling sys.exit() @ " + str(cur_HHMM),sendTeleMsg=True)
-            sys.exit()
+            sys.exit(0)
    
 
             
@@ -1534,45 +1446,3 @@ while True:
     time.sleep(9)   # May be reduced to accomodate the processing delay
 
     check_orders()  # Checks SL orders and sets target, should be called every 10 seconds. check logs
-
-
-
-''' For async run Option 1 
-from multiprocessing import Process
-
-def func1():
-  print 'func1: starting'
-  for i in xrange(10000000): pass
-  print 'func1: finishing'
-
-def func2():
-  print 'func2: starting'
-  for i in xrange(10000000): pass
-  print 'func2: finishing'
-
-if __name__ == '__main__':
-  p1 = Process(target=func1)
-  p1.start()
-  p2 = Process(target=func2)
-  p2.start()
-  p1.join()
-  p2.join()
-'''
-
-''' For async run Option 2 
-import threading
- import time
-
- def useless_function(seconds):
-     print(f'Waiting for {seconds} second(s)', end = "\n")
-     time.sleep(seconds)
-     print(f'Done Waiting {seconds}  second(s)')
-
- start = time.perf_counter()
- t = threading.Thread(target=useless_function, args=[1])
- t.start()
- print(f'Active Threads: {threading.active_count()}')
- t.join()
- end = time.perf_counter()
- print(f'Finished in {round(end-start, 2)} second(s)') 
-'''
