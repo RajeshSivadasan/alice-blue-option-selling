@@ -167,10 +167,10 @@ iLog(f"Initialising : {__file__}",sendTeleMsg=True)
 # iLog(f"Setting up initial sleep time of {init_sleep_seconds} seconds.",sendTeleMsg=True)
 # time.sleep(init_sleep_seconds)
 
-susername = cfg.get("tokens", "uid")
-spassword = cfg.get("tokens", "pwd")
-twofa = cfg.get("tokens", "twofa")
-api_key = cfg.get("tokens", "api_key")
+# susername = cfg.get("tokens", "uid")
+# spassword = cfg.get("tokens", "pwd")
+# twofa = cfg.get("tokens", "twofa")
+# api_key = cfg.get("tokens", "api_key")
 
 
 # Settings can also be read from url except for token settings
@@ -233,9 +233,9 @@ nifty_opt_per_lot_qty = int(cfg.get("info", "nifty_opt_per_lot_qty"))
 next_week_expiry_days = list(map(int,cfg.get("info", "next_week_expiry_days").split(",")))
 
 
-all_variables = f"susername={susername}, trade_nifty={trade_nifty}"
+# all_variables = f"susername={susername}, trade_nifty={trade_nifty}"
 
-iLog("Settings used : " + all_variables)
+# iLog("Settings used : " + all_variables)
 
 
 # while True:
@@ -247,13 +247,13 @@ iLog("Settings used : " + all_variables)
 
 # sys.exit(0)
 
-# Run autologin for the day
-autologin_date = cfg.get("tokens", "autologin_date")
-if autologin_date == datetime.date.today().isoformat():
-    iLog("Ant portal autologin already run for the day.")
-else:
-    iLog("Running Ant portal autologin.")
-    # import ab_auto_login_totp
+# # Run autologin for the day
+# autologin_date = cfg.get("tokens", "autologin_date")
+# if autologin_date == datetime.date.today().isoformat():
+#     iLog("Ant portal autologin already run for the day.")
+# else:
+#     iLog("Running Ant portal autologin.")
+#     # import ab_auto_login_totp
 
 # Lists to store ltp ticks from websocket
 lst_nifty_ltp = []
@@ -326,53 +326,18 @@ lst_ord_lvl_mr =  eval(cfg.get("info", "ord_sizing_lvls_mr"))[dow]
 lst_qty_multiplier_reg = eval(cfg.get("info", "qty_multiplier_per_lvls_reg"))[dow]
 lst_qty_multiplier_mr = eval(cfg.get("info", "qty_multiplier_per_lvls_mr"))[dow]
 
-option_sell_type = cfg.get("info", "option_sell_type")  # CE/PE/BOTH
-nifty_opt_base_lot = int(cfg.get("info", "nifty_opt_base_lot"))
+nifty_avg_margin_req_per_lot =  int(cfg.get("info", "nifty_avg_margin_req_per_lot"))
+# option_sell_type = cfg.get("info", "option_sell_type")  # CE/PE/BOTH
+# nifty_opt_base_lot = int(cfg.get("info", "nifty_opt_base_lot"))
 
 iLog(f"expiry_date = {expiry_date} dow={dow} lst_ord_lvl_reg={lst_ord_lvl_reg} lst_ord_lvl_mr={lst_ord_lvl_mr}")
 
 
-# pya3
-iLog("User = " + susername)
-
-
-users=[]
-
-for section in cfg.sections():
-    user={}
-    if section[0:5]=='user-':
-        if  cfg.get(section, "active")=='Y':
-            user['userid'] = cfg.get(section, "uid")
-            user['password'] = cfg.get(section, "pwd")
-            user['twofa'] = cfg.get(section, "twofa")
-            user['totp_key'] = cfg.get(section, "totp_key")
-            user['api_key'] = cfg.get(section, "api_key")
-            user['nifty_opt_base_lot'] = int(cfg.get(section, "nifty_opt_base_lot")) 
-            user['option_sell_type'] = cfg.get(section, "option_sell_type")
-            user['profit_target_perc'] = int(cfg.get(section, "profit_target_perc"))
-            user['loss_limit_perc'] = int(cfg.get(section, "loss_limit_perc"))
-            user['profit_booking_qty_perc'] = int(cfg.get(section, "profit_booking_qty_perc"))
-            user['virtual_trade'] = int(cfg.get(section, "virtual_trade"))
-
-
-            # Autologin
-            cfg.set("tokens","autologin_date",datetime.date.today().isoformat())
-            with open(INI_FILE, 'w') as configfile:
-                cfg.write(configfile)
-                configfile.close()
-            print("Updated autologin_date to todays date",flush=True)
-
-
-
-            alice = Aliceblue(user_id=user['userid'], api_key=user['api_key'])
-            iLog(f"session_id={alice.get_session_id()}")
-            user['broker_object'] = alice   # aliceblue, zerodha, kotak, icici, upstock etc
-            user['broker'] = "aliceblue"
 
 
 
 ###########################################
-# Class for Autologin into AliceBlue web
+#    Class for Autologin into AliceBlue web
 ###########################################
 class CryptoJsAES:
   @staticmethod
@@ -418,7 +383,7 @@ class CryptoJsAES:
 
 
 ############################################################################
-#       Define Functions
+#     Define Functions
 ############################################################################
 
 def auto_login_totp(user):
@@ -472,12 +437,12 @@ def auto_login_totp(user):
 
 
     if response.json()["userSessionID"]:
-        print("Login Successfully",flush=True)
+        # print("Login Successfully",flush=True)
         return True
-
     else:
-        print("User is not TOTP enabled! Please enable TOTP through mobile or web",flush=True)
+        # print("User is not TOTP enabled! Please enable TOTP through mobile or web",flush=True)
         return False
+
 
 def get_realtime_config():
     '''This procedure can be called during execution to get realtime values from the .ini file'''
@@ -526,27 +491,27 @@ def place_order(user, ins_scrip, qty, limit_price=0.0, buy_sell = TransactionTyp
     else:
         trigger_price = None
 
-    iLog(f"[{user['userid']}] place_order(): {ins_scrip.name} {qty} {buy_sell} {limit_price}")
+    if user['virtual_trade']:
+        iLog(f"[{user['userid']}] place_order(): *** Viratual trade {ins_scrip.name} {qty} {buy_sell} {limit_price}")    
+    else:
+        iLog(f"[{user['userid']}] place_order(): {ins_scrip.name} {qty} {buy_sell} {limit_price}")
 
-    try:
-        ord_obj = alice.place_order(transaction_type = buy_sell,
-                         instrument = ins_scrip,
-                         quantity = qty,
-                         order_type = order_type,
-                         product_type = ProductType.Normal,
-                         price = limit_price,
-                         trigger_price = trigger_price,
-                         stop_loss = None,
-                         square_off = None,
-                         trailing_sl = None,
-                         is_amo = False,
-                         order_tag = order_tag)
+        try:
+            ord_obj = alice.place_order(transaction_type = buy_sell,
+                            instrument = ins_scrip,
+                            quantity = qty,
+                            order_type = order_type,
+                            product_type = ProductType.Normal,
+                            price = limit_price,
+                            trigger_price = trigger_price,
+                            stop_loss = None,
+                            square_off = None,
+                            trailing_sl = None,
+                            is_amo = False,
+                            order_tag = order_tag)
 
-        # strMsg = "In squareOff_MIS(): buy_sell={},ins_scrip={},qty={},order_type={},limit_price={}".format(buy_sell,ins_scrip,qty,order_type,limit_price)
-        # iLog(strMsg,6,sendTeleMsg=True)
-    
-    except Exception as ex:
-        iLog(f"[{user['userid']}] place_order(): Exception occured {ex}",3)
+        except Exception as ex:
+            iLog(f"[{user['userid']}] place_order(): Exception occured {ex}",3)
 
     return ord_obj
 
@@ -561,7 +526,7 @@ def place_option_orders_CEPE(user,flgMeanReversion,dict_opt):
 
     last_price = dict_opt["last_price"]
     ins_opt = dict_opt["instrument"]
-    qty = nifty_opt_base_lot * nifty_opt_per_lot_qty
+    qty = user['nifty_opt_base_lot'] * nifty_opt_per_lot_qty
 
 
     # level 0 = immediate resistance level, level 1 = Next resistance level and so on  
@@ -661,24 +626,24 @@ def place_option_orders_CEPE(user,flgMeanReversion,dict_opt):
             iLog(f"[{user['userid']}] place_option_orders_CEPE(): flgMeanReversion=False, Unable to find pivots and place order for {ins_opt}")
 
 
-def subscribe_ins():
-    try:
-        if trade_nifty : 
-            alice.subscribe(ins_nifty, LiveFeedType.TICK_DATA)
-            alice.subscribe(ins_nifty_ce, LiveFeedType.TICK_DATA)
-            alice.subscribe(ins_nifty_pe, LiveFeedType.TICK_DATA)
-            iLog(f"subscribed to {ins_nifty}, {ins_nifty_ce}, {ins_nifty_pe} ")
+# def subscribe_ins():
+#     try:
+#         if trade_nifty : 
+#             alice.subscribe(ins_nifty, LiveFeedType.TICK_DATA)
+#             alice.subscribe(ins_nifty_ce, LiveFeedType.TICK_DATA)
+#             alice.subscribe(ins_nifty_pe, LiveFeedType.TICK_DATA)
+#             iLog(f"subscribed to {ins_nifty}, {ins_nifty_ce}, {ins_nifty_pe} ")
 
-        if trade_banknifty : 
-            alice.subscribe(ins_bank, LiveFeedType.TICK_DATA)
-            alice.subscribe(ins_bank_ce, LiveFeedType.TICK_DATA)
-            alice.subscribe(ins_bank_pe, LiveFeedType.TICK_DATA)
-            iLog(f"subscribed to {ins_bank}, {ins_bank_ce}, {ins_bank_pe} ")
+#         if trade_banknifty : 
+#             alice.subscribe(ins_bank, LiveFeedType.TICK_DATA)
+#             alice.subscribe(ins_bank_ce, LiveFeedType.TICK_DATA)
+#             alice.subscribe(ins_bank_pe, LiveFeedType.TICK_DATA)
+#             iLog(f"subscribed to {ins_bank}, {ins_bank_ce}, {ins_bank_pe} ")
 
-    except Exception as ex:
-        iLog("subscribe_ins(): Exception="+ str(ex),3)
+#     except Exception as ex:
+#         iLog("subscribe_ins(): Exception="+ str(ex),3)
 
-    iLog("subscribe_ins().")
+#     iLog("subscribe_ins().")
 
 
 def close_all_orders(opt_index="ALL",buy_sell="ALL",ord_open_time=0):
@@ -887,23 +852,29 @@ def get_option_tokens(nifty_bank="ALL"):
             strike_ce = float(nifty_atm - nifty_strike_ce_offset)   #ITM Options
             strike_pe = float(nifty_atm + nifty_strike_pe_offset)
 
-            ins_nifty_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=expiry_date.isoformat() , is_fut=False,strike=strike_ce, is_CE=True)
-            ins_nifty_pe = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=expiry_date.isoformat() , is_fut=False,strike=strike_pe, is_CE=False)
+            tmp_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=expiry_date.isoformat() , is_fut=False,strike=strike_ce, is_CE=True)
+            tmp_pe = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=expiry_date.isoformat() , is_fut=False,strike=strike_pe, is_CE=False)
 
-            alice.subscribe([ins_nifty_ce,ins_nifty_pe])
+            # Reuse if current and new ce/pe is same 
+            if ins_nifty_ce!=tmp_ce:
+            
+                ins_nifty_ce = tmp_ce
+                ins_nifty_pe = tmp_pe
 
-           
-            iLog(f"ins_nifty_ce={ins_nifty_ce}, ins_nifty_pe={ins_nifty_pe}")
+                alice.subscribe([ins_nifty_ce,ins_nifty_pe])
 
-            token_nifty_ce = ins_nifty_ce[1]
-            token_nifty_pe = ins_nifty_pe[1]
 
-            # print("token_nifty_ce=",token_nifty_ce,flush=True)
-            # print("token_nifty_pe=",token_nifty_pe,flush=True)
+                iLog(f"ins_nifty_ce={ins_nifty_ce}, ins_nifty_pe={ins_nifty_pe}")
 
-            # Calculate pivot points for nitfy option CE and PE
-            dict_nifty_ce = get_pivot_points(ins_nifty_ce,strike_ce)
-            dict_nifty_pe = get_pivot_points(ins_nifty_pe,strike_pe)
+                token_nifty_ce = ins_nifty_ce[1]
+                token_nifty_pe = ins_nifty_pe[1]
+
+                # print("token_nifty_ce=",token_nifty_ce,flush=True)
+                # print("token_nifty_pe=",token_nifty_pe,flush=True)
+
+                # Calculate pivot points for nitfy option CE and PE
+                dict_nifty_ce = get_pivot_points(ins_nifty_ce,strike_ce)
+                dict_nifty_pe = get_pivot_points(ins_nifty_pe,strike_pe)
 
         else:
             iLog(f"len(lst_nifty_ltp)={len(lst_nifty_ltp)}")
@@ -957,36 +928,58 @@ def get_option_tokens(nifty_bank="ALL"):
         iLog(f"ltp_bank_ATM_CE={ltp_bank_ATM_CE}, ltp_bank_ATM_PE={ltp_bank_ATM_PE}")  
 
 
-def process_orders():
+
+def check_positions(user):
     '''
     1. Check positions
-    2. If position already exists
-        2.1 Check if orders exists for those position , if yes do nothing
-        2.2 Else get pivot points for this position symbol and place orders
-    3. If position does not exist
-        3.1 Place order for the current option
+    2. If position exists, check overall MTM and squareoff the trade that has reached its target
+    3. If position does not exist do nothing as order punching is done by strategy code
     '''
-     
+    strMsgSuffix = f"[{user['userid']}] check_positions()"
+
+    alice = user['broker_object'] 
+
     pos = alice.get_netwise_positions() # Returns list of dicts if position is there else returns dict {'emsg': 'No Data', 'stat': 'Not_Ok'}
     if type(pos)==list:
-        df_pos = pd.DataFrame(pos)
-        print("df_pos:=")
-        print(df_pos)
+        df_pos = pd.DataFrame(pos)[['Symbol','Tsym','Netqty','MtoM']]
+        # print("df_pos:=")
+        # print(df_pos)
 
-        mtm = sum(pd.to_numeric(df_pos.MtoM.str.replace(",","")))
+        
+        df_pos['mtm'] = df_pos.MtoM.str.replace(",","").astype(float)
+        mtm = sum(df_pos['mtm'])
         pos_nifty = sum(pd.to_numeric(df_pos[df_pos.Symbol=='NIFTY'].Netqty))
         pos_bank = sum(pd.to_numeric(df_pos[df_pos.Symbol=='BANKNIFTY'].Netqty))
-        print(f"mtm={mtm} pos_nifty={pos_nifty} pos_bank={pos_bank}")
+
+        pos_total = sum(abs(df_pos.Netqty.astype(int)))
+
+        # ----------- Need changes for Banknifty as the lot size is 25
+        net_margin_utilised = abs(pos_total/50) * nifty_avg_margin_req_per_lot
+        profit_target = round(net_margin_utilised * (user['profit_target_perc']/100))
+
+        print(f"{strMsgSuffix} net_margin_utilised={net_margin_utilised} mtm={mtm} pos_nifty={pos_nifty} pos_bank={pos_bank}")
+
+        # Aliceblue.squareoff_positions()
+        if mtm > profit_target:
+            for opt in df_pos.itertuples():
+                # Check if instrument options and position is sell and its mtm is greater than profit target amt
+                tradingsymbol = opt.Tsym
+                qty = opt.Netqty
+                MtoM = float(opt.MtoM.replace(",",""))
+                # Get the partial profit booking quantity
+                
+                iLog(f"{strMsgSuffix} tradingsymbol={tradingsymbol} qty={qty} MtoM={MtoM} opt.ltp={opt.ltp}")
+                # Need to provision for partial profit booking
+                if (tradingsymbol[-2:] in ('CE','PE')) and (qty < 0) and (opt.mtm > opt.profit_target_amt) :
+                    # iLog(strMsgSuffix + f" Placing Squareoff order for tradingsymbol={tradingsymbol}, qty={qty}",True)
+                    place_order(kiteuser,tradingsymbol=tradingsymbol,qty=qty, transaction_type=kite.TRANSACTION_TYPE_BUY, order_type=kite.ORDER_TYPE_MARKET)
+                    kiteuser["partial_profit_booked_flg"]=1
 
 
 
-    # df_orders.Status=='open'    # open / complete 
 
-    orders = alice.get_order_history('')
-    if type(orders)==list:
-        df_orders = pd.DataFrame(orders)
-        print("df_orders:=")
-        print(df_orders)
+
+
 
 
 def get_pivot_points(instrument,strike_price):
@@ -1037,11 +1030,12 @@ def get_pivot_points(instrument,strike_price):
         return {}
 
 
+
 def strategy1(user):
     global strategy1_HHMM
     strategy1_HHMM = 0
     '''
-    For NIFTY
+    Put trades based on the option type and strike selection and its pivots (now only for NIFTY)
     1. Check positions
     2. If position already exists
         2.1 Check if orders exists for those position , if yes do nothing
@@ -1072,6 +1066,8 @@ def strategy1(user):
                 print("dict_nifty_ce:=")
                 print(dict_nifty_ce) 
                 place_option_orders_CEPE(user,False,dict_nifty_ce)
+
+
 
 def strategy2():
     global strategy2_HHMM
@@ -1151,19 +1147,61 @@ def close_callback():
 
 # Main program starts from here...
 
-
-
-#print(str(datetime.datetime.now().strftime("%H:%M:%S")) + ' : '+susername,flush=True)
-
-
-
-
 # To reuse pya3 session
 # session_id = 'FjpN4X03GyLL8XUGNFhJuNJ0Cqqr3Zj765b9XqRDzJult9ThGs6OXi2VQgT3otybKyX8Ja0WMVXlxmXjYCsnMygFepe55me3hkVD7843GfnJxu6Ep7BCq9SZtE1slvU51zSCQCVoXEyWPAQyEr7VGyu2m6VI0WiT6OkAJe8JKXtdsVdyLClvK8zcQmzvm2ztenY57bFeG9oogn1I2yG2Yz1xkYBxh2yDyJbHvOGVmXXMYXi5XGvHytnck0ZuxGpj'
 # alice = Aliceblue(user_id=susername,api_key=api_key,session_id=session_id)
 
+users=[]
+
+# Load multiple users from the .ini file, login to ant portal and maintain a userlist
+for section in cfg.sections():
+    user={}
+    if section[0:5]=='user-':
+        if  cfg.get(section, "active")=='Y':
+            user['userid'] = cfg.get(section, "uid")
+            user['password'] = cfg.get(section, "pwd")
+            user['twofa'] = cfg.get(section, "twofa")
+            user['totp_key'] = cfg.get(section, "totp_key")
+            user['api_key'] = cfg.get(section, "api_key")
+            user['nifty_opt_base_lot'] = int(cfg.get(section, "nifty_opt_base_lot")) 
+            user['option_sell_type'] = cfg.get(section, "option_sell_type")
+            user['profit_target_perc'] = int(cfg.get(section, "profit_target_perc"))
+            user['loss_limit_perc'] = int(cfg.get(section, "loss_limit_perc"))
+            user['profit_booking_qty_perc'] = int(cfg.get(section, "profit_booking_qty_perc"))
+            user['virtual_trade'] = int(cfg.get(section, "virtual_trade"))
 
 
+            if auto_login_totp(user):
+                alice = Aliceblue(user_id=user['userid'], api_key=user['api_key'])
+                # session_id=alice.get_session_id()
+                iLog(f"Login Successful for user {user['userid']}")
+                user['broker_object'] = alice   # aliceblue, zerodha, kotak, icici, upstock etc
+                user['broker'] = "aliceblue"
+                users.append(user)
+            else:
+                iLog(f"Autologin failed for {user['userid']}")
+
+# Exit if user logins failed
+if len(users)==0:
+    iLog(f"All user Logins failed !")
+    sys.exit(0)
+
+# print("users:")
+# print(users)
+
+# Assign alice object to the first logged in user
+alice = users[0]['broker_object']
+
+
+# # Autologin
+# cfg.set("tokens","autologin_date",datetime.date.today().isoformat())
+# with open(INI_FILE, 'w') as configfile:
+#     cfg.write(configfile)
+#     configfile.close()
+# print("Updated autologin_date to todays date",flush=True)
+
+
+# Download contracts
 alice.get_contract_master("INDICES")
 alice.get_contract_master("NSE")
 alice.get_contract_master("NFO")
@@ -1182,7 +1220,6 @@ ins_bank = alice.get_instrument_by_symbol('INDICES', 'NIFTY BANK')
 # Start Websocket
 iLog("Starting Websocket.",sendTeleMsg=True)
 
-
 alice.start_websocket(socket_open_callback=open_callback, socket_close_callback=close_callback,
                       socket_error_callback=error_callback, subscription_callback=event_handler_quote_update, run_in_background=True)
 
@@ -1192,7 +1229,7 @@ while(socket_opened==False):
     pass
 
 
-
+# Later add bank nifty support
 subscribe_list = [ins_nifty]
 # print("subscribe_list=",subscribe_list)
 
@@ -1230,9 +1267,9 @@ strategy2_executed=0
 
 
 # Test Area
-get_realtime_config()
-strategy1(user)
-sys.exit(0)
+# get_realtime_config()
+# strategy1(user)
+# sys.exit(0)
 
 ########################################################
 ####            MAIN PROGRAM START HERE ...         ####
@@ -1249,7 +1286,9 @@ while cur_HHMM > 914 and cur_HHMM<1732:
     # MTM = check_MTM_Limit()
     if strategy1_HHMM==cur_HHMM and strategy1_executed==0:
         iLog(f"Triggering Strategy1 at {cur_HHMM}",True)
-        strategy1()
+        for user in users:
+            strategy1(user)
+        
         strategy1_executed=1
     elif strategy1_HHMM != cur_HHMM:
         strategy1_executed=0
@@ -1269,4 +1308,3 @@ while cur_HHMM > 914 and cur_HHMM<1732:
 
     time.sleep(interval_seconds)   # Default 30 Seconds
     cur_HHMM = int(datetime.datetime.now().strftime("%H%M"))
-    # print("cur_HHMM=",cur_HHMM,flush=True)
