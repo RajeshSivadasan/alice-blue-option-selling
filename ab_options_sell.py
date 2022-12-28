@@ -1,4 +1,5 @@
 # pylint: disable=unused-wildcard-import
+# If dow is 5,1,2 and MTM is below -1% then no order to be placed that day and wait for next day
 # Get file contents from gdrive shareable link 
 # URL = <Go to Drive --> choose the file --> choose 'Get Link' --> paste it here>
 # path = 'https://drive.google.com/uc?export=download&id='+URL.split('/')[-2]
@@ -86,10 +87,26 @@ import time
 # import threading
 import configparser
 
+# For Autologin
+import requests
+import json
+from Crypto import Random
+from Crypto.Cipher import AES
+import hashlib
+import base64
+import pyotp
+
+
+
+
 # from nsepy import get_history
 
 
-
+INI_FILE = __file__[:-3]+".ini"   
+# Load parameters from the config file
+cfg = configparser.ConfigParser()
+cfg.read(INI_FILE)
+log_to_file = int(cfg.get("tokens", "log_to_file"))
 
 
 
@@ -100,9 +117,9 @@ import configparser
 # Enable logging to file
 # If log folder is not present create it
 if not os.path.exists("./log") : os.makedirs("./log")
-LOG_FILE = r"./log/ab_options_sell_" + datetime.datetime.now().strftime("%Y%m%d") +".log"
-# sys.stdout = sys.stderr = open(LOG_FILE, "a")
+if log_to_file : sys.stdout = sys.stderr =  open(r"./log/ab_options_sell_" + datetime.now().strftime("%Y%m%d") +".log" , "a") 
 
+# sys.stdout = sys.stderr = open(LOG_FILE, "a")
 ###################################
 #      Logging method
 ###################################
@@ -126,38 +143,33 @@ def iLog(strLogText,LogType=1,sendTeleMsg=False):
 
 
 
-
 ######################################
 #       Initialise variables
 ######################################
-INI_FILE = "ab_options_sell.ini"              # Set .ini file name used for storing config info.
-# Load parameters from the config file
-cfg = configparser.ConfigParser()
-cfg.read(INI_FILE)
-
 strChatID = cfg.get("tokens", "chat_id")
-strBotToken = cfg.get("tokens", "options_bot_token")    #Bot include "bot" prefix in the token
+strBotToken = cfg.get("tokens", "bot_token")    #Bot include "bot" prefix in the token
 
 read_settings_from_url = int(cfg.get("tokens", "read_settings_from_url"))
 settings_url = cfg.get("tokens", "settings_url")
+
+BASE_URL = cfg.get("tokens", "BASE_URL") 
+
 
 # read_settings_from_url = 'https://raw.githubusercontent.com/RajeshSivadasan/mysettings/main/ab_options_sell.ini'
 # read_settings_from_url = ''
 
 iLog(f"Initialising : {__file__}",sendTeleMsg=True)
-iLog(f"Logging info into : {LOG_FILE}")
+# iLog(f"Logging info into : {LOG_FILE}")
 
-# crontabed this at 9.00 am instead of 8.59 
-# Set initial sleep time to match the bank market opening time of 9:00 AM to avoid previous junk values
-init_sleep_seconds = int(cfg.get("info", "init_sleep_seconds"))
-iLog(f"Setting up initial sleep time of {init_sleep_seconds} seconds.",sendTeleMsg=True)
-time.sleep(init_sleep_seconds)
+# # crontabed this at 9.00 am instead of 8.59 
+# # Set initial sleep time to match the bank market opening time of 9:00 AM to avoid previous junk values
+# init_sleep_seconds = int(cfg.get("info", "init_sleep_seconds"))
+# iLog(f"Setting up initial sleep time of {init_sleep_seconds} seconds.",sendTeleMsg=True)
+# time.sleep(init_sleep_seconds)
 
 susername = cfg.get("tokens", "uid")
 spassword = cfg.get("tokens", "pwd")
 twofa = cfg.get("tokens", "twofa")
-# api_secret = cfg.get("tokens", "api_secret")
-# api_code = cfg.get("tokens", "api_code")
 api_key = cfg.get("tokens", "api_key")
 
 
@@ -188,6 +200,11 @@ nifty_strike_pe_offset = float(cfg.get("realtime", "nifty_strike_pe_offset"))
 bank_strike_ce_offset = float(cfg.get("realtime", "bank_strike_ce_offset"))
 bank_strike_pe_offset = float(cfg.get("realtime", "bank_strike_pe_offset"))
 
+strategy1_HHMM  = int(cfg.get("realtime", "strategy1_HHMM"))    # If set to 0 , strategy is disabled
+strategy2_HHMM  = int(cfg.get("realtime", "strategy2_HHMM"))    # If set to 0 , strategy is disabled
+
+
+
 # nifty_lot_size = int(cfg.get("info", "nifty_lot_size"))
 
 #List of thursdays when its NSE holiday, hence reduce 1 day to get expiry date 
@@ -198,8 +215,6 @@ interval_seconds = int(cfg.get("info", "interval_seconds"))   #3
 # nifty_sqoff_time = int(cfg.get("info", "nifty_sqoff_time")) #1512 time after which orders not to be processed and open orders to be cancelled
 # bank_sqoff_time = int(cfg.get("info", "bank_sqoff_time")) #2310 time after which orders not to be processed and open orders to be cancelled
 
-nifty_tsl = int(cfg.get("info", "nifty_tsl"))   #Trailing Stop Loss for Nifty
-bank_tsl = int(cfg.get("info", "bank_tsl"))     #Trailing Stop Loss for BankNifty
 
 premarket_advance = int(cfg.get("info", "premarket_advance"))
 premarket_decline = int(cfg.get("info", "premarket_decline"))
@@ -212,8 +227,10 @@ enable_bank = int(cfg.get("info", "enable_bank"))               # 1=Original fla
 enable_NFO = int(cfg.get("info", "enable_NFO"))                 # 1=Original flag for Nifty trading. Daily(realtime) flag to be reset eod based on this.
 
 
-no_of_trades_limit = int(cfg.get("info", "no_of_trades_limit"))         # 2 BOs trades per order; 6 trades for 3 orders
+nifty_opt_per_lot_qty = int(cfg.get("info", "nifty_opt_per_lot_qty"))
 
+# List of days in number for which next week expiry needs to be selected, else use current week expiry
+next_week_expiry_days = list(map(int,cfg.get("info", "next_week_expiry_days").split(",")))
 
 
 all_variables = f"susername={susername}, trade_nifty={trade_nifty}"
@@ -236,7 +253,7 @@ if autologin_date == datetime.date.today().isoformat():
     iLog("Ant portal autologin already run for the day.")
 else:
     iLog("Running Ant portal autologin.")
-    import ab_auto_login_totp
+    # import ab_auto_login_totp
 
 # Lists to store ltp ticks from websocket
 lst_nifty_ltp = []
@@ -290,15 +307,185 @@ dict_nifty_pe = {}
 dict_nifty_opt_selected = {} # for storing the details of existing older option position which needs reversion
 
 
+# Get current/next week expiry 
+# ----------------------------
+# if today is tue or wed then use next expiry else use current expiry. .isoweekday() 1 = Monday, 2 = Tuesday
+dow = datetime.date.today().isoweekday()    # Also used in placing orders 
+if dow  in (next_week_expiry_days):  # next_week_expiry_days = 2,3,4 
+    expiry_date = datetime.date.today() + datetime.timedelta( ((3-datetime.date.today().weekday()) % 7)+7 )
+else:
+    expiry_date = datetime.date.today() + datetime.timedelta( ((3-datetime.date.today().weekday()) % 7))
+
+if str(expiry_date) in weekly_expiry_holiday_dates :
+    expiry_date = expiry_date - datetime.timedelta(days=1)
+
+
+# Get the trading levels and quantity multipliers to be followed for the day .e.g on Friday only trade reversion 3rd or 4th levels to be safe
+lst_ord_lvl_reg =  eval(cfg.get("info", "ord_sizing_lvls_reg"))[dow]
+lst_ord_lvl_mr =  eval(cfg.get("info", "ord_sizing_lvls_mr"))[dow]
+lst_qty_multiplier_reg = eval(cfg.get("info", "qty_multiplier_per_lvls_reg"))[dow]
+lst_qty_multiplier_mr = eval(cfg.get("info", "qty_multiplier_per_lvls_mr"))[dow]
+
+option_sell_type = cfg.get("info", "option_sell_type")  # CE/PE/BOTH
+nifty_opt_base_lot = int(cfg.get("info", "nifty_opt_base_lot"))
+
+iLog(f"expiry_date = {expiry_date} dow={dow} lst_ord_lvl_reg={lst_ord_lvl_reg} lst_ord_lvl_mr={lst_ord_lvl_mr}")
+
+
+# pya3
+iLog("User = " + susername)
+
+
+users=[]
+
+for section in cfg.sections():
+    user={}
+    if section[0:5]=='user-':
+        if  cfg.get(section, "active")=='Y':
+            user['userid'] = cfg.get(section, "uid")
+            user['password'] = cfg.get(section, "pwd")
+            user['twofa'] = cfg.get(section, "twofa")
+            user['totp_key'] = cfg.get(section, "totp_key")
+            user['api_key'] = cfg.get(section, "api_key")
+            user['nifty_opt_base_lot'] = int(cfg.get(section, "nifty_opt_base_lot")) 
+            user['option_sell_type'] = cfg.get(section, "option_sell_type")
+            user['profit_target_perc'] = int(cfg.get(section, "profit_target_perc"))
+            user['loss_limit_perc'] = int(cfg.get(section, "loss_limit_perc"))
+            user['profit_booking_qty_perc'] = int(cfg.get(section, "profit_booking_qty_perc"))
+            user['virtual_trade'] = int(cfg.get(section, "virtual_trade"))
+
+
+            # Autologin
+            cfg.set("tokens","autologin_date",datetime.date.today().isoformat())
+            with open(INI_FILE, 'w') as configfile:
+                cfg.write(configfile)
+                configfile.close()
+            print("Updated autologin_date to todays date",flush=True)
+
+
+
+            alice = Aliceblue(user_id=user['userid'], api_key=user['api_key'])
+            iLog(f"session_id={alice.get_session_id()}")
+            user['broker_object'] = alice   # aliceblue, zerodha, kotak, icici, upstock etc
+            user['broker'] = "aliceblue"
+
+
+
+###########################################
+# Class for Autologin into AliceBlue web
+###########################################
+class CryptoJsAES:
+  @staticmethod
+  def __pad(data):
+    BLOCK_SIZE = 16
+    length = BLOCK_SIZE - (len(data) % BLOCK_SIZE)
+    return data + (chr(length) * length).encode()
+
+  @staticmethod
+  def __unpad(data):
+    return data[:-(data[-1] if type(data[-1]) == int else ord(data[-1]))]
+
+  def __bytes_to_key(data, salt, output=48):
+    assert len(salt) == 8, len(salt)
+    data += salt
+    key = hashlib.md5(data).digest()
+    final_key = key
+    while len(final_key) < output:
+      key = hashlib.md5(key + data).digest()
+      final_key += key
+    return final_key[:output]
+
+  @staticmethod
+  def encrypt(message, passphrase):
+    salt = Random.new().read(8)
+    key_iv = CryptoJsAES.__bytes_to_key(passphrase, salt, 32 + 16)
+    key = key_iv[:32]
+    iv = key_iv[32:]
+    aes = AES.new(key, AES.MODE_CBC, iv)
+    return base64.b64encode(b"Salted__" + salt + aes.encrypt(CryptoJsAES.__pad(message)))
+
+  @staticmethod
+  def decrypt(encrypted, passphrase):
+    encrypted = base64.b64decode(encrypted)
+    assert encrypted[0:8] == b"Salted__"
+    salt = encrypted[8:16]
+    key_iv = CryptoJsAES.__bytes_to_key(passphrase, salt, 32 + 16)
+    key = key_iv[:32]
+    iv = key_iv[32:]
+    aes = AES.new(key, AES.MODE_CBC, iv)
+    return CryptoJsAES.__unpad(aes.decrypt(encrypted[16:]))
+
+
+
 ############################################################################
 #       Define Functions
 ############################################################################
+
+def auto_login_totp(user):
+
+    userId = user['userid']
+    password = user['password'] 
+    twofa = user['twofa']
+    totp_encrypt_key = user['totp_key']
+
+
+    totp = pyotp.TOTP(totp_encrypt_key)
+
+    url = BASE_URL+"/customer/getEncryptionKey"
+    payload = json.dumps({"userId": userId})
+    headers = {'Content-Type': 'application/json'}
+    response = requests.request("POST", url, headers=headers, data=payload,verify=True)
+    encKey = response.json()["encKey"]
+    checksum = CryptoJsAES.encrypt(password.encode(), encKey.encode()).decode('UTF-8')
+
+
+    url = BASE_URL+"/customer/webLogin"
+    payload = json.dumps({"userId": userId,"userData": checksum})
+    headers = {'Content-Type': 'application/json'}
+
+    response = requests.request("POST", url, headers=headers, data=payload,verify=True)
+    response_data = response.json()
+
+
+    url = BASE_URL+"/sso/2fa"
+
+    payload = json.dumps({
+    "answer1": twofa,
+    "userId": userId,
+    "sCount": str(response_data['sCount']),
+    "sIndex": response_data['sIndex']
+    })
+
+    headers = {'Content-Type': 'application/json'}
+
+    response = requests.request("POST", url, headers=headers, data=payload,verify=True)
+
+    # print("response.json():")
+    # print(response.json())
+
+
+    if response.json()["loPreference"] == "TOTP" and response.json()["totpAvailable"]:
+        url = BASE_URL+"/sso/verifyTotp"
+        payload = json.dumps({"tOtp": totp.now(),"userId": userId})
+        headers = {'Authorization': 'Bearer '+userId+' '+response.json()['us'],'Content-Type': 'application/json'}
+        response = requests.request("POST", url, headers=headers, data=payload,verify=True)
+
+
+    if response.json()["userSessionID"]:
+        print("Login Successfully",flush=True)
+        return True
+
+    else:
+        print("User is not TOTP enabled! Please enable TOTP through mobile or web",flush=True)
+        return False
+
 def get_realtime_config():
     '''This procedure can be called during execution to get realtime values from the .ini file'''
 
     global trade_nifty, trade_banknifty, nifty_limit_price_offset,bank_limit_price_offset\
     ,mtm_sl,mtm_target, cfg, nifty_sl, bank_sl, export_data, sl_buffer, nifty_ord_type, bank_ord_type\
-    ,nifty_strike_ce_offset, nifty_strike_pe_offset, bank_strike_ce_offset, bank_strike_pe_offset
+    ,nifty_strike_ce_offset, nifty_strike_pe_offset, bank_strike_ce_offset, bank_strike_pe_offset\
+    ,strategy1_HHMM,strategy2_HHMM
 
     cfg.read(INI_FILE)
     
@@ -319,16 +506,19 @@ def get_realtime_config():
     bank_strike_ce_offset = float(cfg.get("realtime", "bank_strike_ce_offset"))
     bank_strike_pe_offset = float(cfg.get("realtime", "bank_strike_pe_offset"))
 
-def squareOff_MIS(buy_sell,ins_scrip,qty, order_type = OrderType.Market, limit_price=0.0,order_tag= None):
-    '''Square off MIS positions at EoD or when mtm limit is reached. Also used for placing Market orders. 
+    strategy1_HHMM  = int(cfg.get("realtime", "strategy1_HHMM"))    # If set to 0 , strategy is disabled
+    strategy2_HHMM  = int(cfg.get("realtime", "strategy2_HHMM")) 
+
+
+def place_order(user, ins_scrip, qty, limit_price=0.0, buy_sell = TransactionType.Sell, order_type = OrderType.Limit, order_tag = "ab_options_sell"):
+    '''
+    Used for placing orders. Default is buy market orders for squareoff short positions 
     buy_sell = TransactionType.Buy/TransactionType.Sell
-
-    order_type = OrderType.StopLossLimit Default is Market order
-
+    order_type = Default is limit order
     limit_price = limit price in case SL order needs to be placed 
     '''
-    global alice
-
+    # global alice
+    alice = user['broker_object'] 
     ord_obj = {}
 
     if limit_price > 1 : 
@@ -336,12 +526,14 @@ def squareOff_MIS(buy_sell,ins_scrip,qty, order_type = OrderType.Market, limit_p
     else:
         trigger_price = None
 
+    iLog(f"[{user['userid']}] place_order(): {ins_scrip.name} {qty} {buy_sell} {limit_price}")
+
     try:
-        ord_obj=alice.place_order(transaction_type = buy_sell,
+        ord_obj = alice.place_order(transaction_type = buy_sell,
                          instrument = ins_scrip,
                          quantity = qty,
                          order_type = order_type,
-                         product_type = ProductType.Intraday,
+                         product_type = ProductType.Normal,
                          price = limit_price,
                          trigger_price = trigger_price,
                          stop_loss = None,
@@ -354,298 +546,120 @@ def squareOff_MIS(buy_sell,ins_scrip,qty, order_type = OrderType.Market, limit_p
         # iLog(strMsg,6,sendTeleMsg=True)
     
     except Exception as ex:
-        iLog("Exception occured in squareOff_MIS():"+str(ex),3)
+        iLog(f"[{user['userid']}] place_order(): Exception occured {ex}",3)
 
     return ord_obj
 
-# def buy_signal(ins_scrip,qty,limit_price,stop_loss_abs,target_abs,trailing_sl_abs,product_type=ProductType.Delivery):
-#     global alice
-#     #ord=
-#     #{'status': 'success', 'message': 'Order placed successfully', 'data': {'oms_order_id': '200416000176487'}}
-#     #{'status': 'error', 'message': 'Error Occurred :Trigger price cannot be greater than Limit Price', 'data': {}}
-#     #ord1['status']=='success'
-#     #print(ord['data']['oms_order_id'])
-#     try:
-#         ord_obj=alice.place_order(transaction_type = TransactionType.Buy,
-#                          instrument = ins_scrip,
-#                          quantity = qty,
-#                          order_type = OrderType.Limit,
-#                          product_type = product_type,
-#                          price = float(limit_price),
-#                          trigger_price = float(limit_price),
-#                          stop_loss = float(stop_loss_abs),
-#                          square_off = target_abs,
-#                          trailing_sl = trailing_sl_abs,
-#                          is_amo = False)
-#     except Exception as ex:
-#             # print("Exception occured in buy_signal():",ex,flush=True)
-#             #ord_obj={'status': 'error'} not required as api gives this in case of actual error
-#     #print("buy_signal():ins_scrip,qty,limit_price,stop_loss_abs,target_abs,trailing_sl_abs:",ins_scrip,qty,limit_price,stop_loss_abs,target_abs,trailing_sl_abs,flush=True)
-#             iLog("Exception occured in buy_signal():"+str(ex),3)
 
-#     return ord_obj
+def place_option_orders_CEPE(user,flgMeanReversion,dict_opt):
+    '''
+    Called from place_option_orders(). All arguments are mandatory.
+    This procedure is used for putting regular or mean reversion (position sizing) orders based on pivot levels 
+    '''
+    # iLog(f"[{user['userid']}] place_option_orders_CEPE(): flgMeanReversion = {flgMeanReversion} dict_opt = {dict_opt}")
+    iLog(f"[{user['userid']}] place_option_orders_CEPE(): flgMeanReversion={flgMeanReversion}")    
 
-# def sell_signal(ins_scrip,qty,limit_price,stop_loss_abs,target_abs,trailing_sl_abs,product_type=ProductType.Delivery):
-#     global alice
-#     try:
-#         ord_obj=alice.place_order(transaction_type = TransactionType.Sell,
-#                          instrument = ins_scrip,
-#                          quantity = qty,
-#                          order_type = OrderType.Limit,
-#                          product_type = product_type,
-#                          price = limit_price,
-#                          trigger_price = limit_price,
-#                          stop_loss = stop_loss_abs,
-#                          square_off = target_abs,
-#                          trailing_sl = trailing_sl_abs,
-#                          is_amo = False)
-          
-#     except Exception as ex:
-#             # print("Exception occured in sell_signal():",ex,flush=True)
-#             iLog(f"Exception occured in sell_signal(): {ex}",3)
-#     #print("sell_signal():ins_scrip,qty,limit_price,stop_loss_abs,target_abs,trailing_sl_abs:",ins_scrip,qty,limit_price,stop_loss_abs,target_abs,trailing_sl_abs,flush=True)
-    
-#     return ord_obj
-
-# def buy_nifty_options(strMsg):
-   
-#     global df_nifty
-#     option_type = ""
-
-#     df_nifty.iat[-1,5] = "B"  # v1.1 set signal column value
+    last_price = dict_opt["last_price"]
+    ins_opt = dict_opt["instrument"]
+    qty = nifty_opt_base_lot * nifty_opt_per_lot_qty
 
 
-#     # strMsg == NIFTY_CE | NIFTY_PE 
-#     lt_price, nifty_sl = get_trade_price_options(strMsg)   # Get trade price and SL for BO1 
-   
-#     df_nifty.iat[-1,6] = nifty_sl  # v3.7 set sl column value. This is only for BO1; rest BOs will different SLs 
+    # level 0 = immediate resistance level, level 1 = Next resistance level and so on  
+    if flgMeanReversion :
+        #Put orders for mean reversion for existing positions while addding new positions 
+        # rng = (dict_nifty_ce["r2"] - dict_nifty_ce["r1"])/2
+        if dict_opt["s2"] <= last_price < dict_opt["s1"] :
+            # S/R to Level Mapping: s1=0, pp=1, r1=2, r2=3, r3=4, r4=5
+            # place_order(user,ins_opt,qty,float(dict_opt["s1"]))
+            
+            if 1 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[1],float(dict_opt["pp"]))
+            if 2 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[2],float(dict_opt["r1"]))
+            if 3 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[3],float(dict_opt["r2"]))
+            if 4 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[4],float(dict_opt["r3"]))
+            if 5 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[5],float(dict_opt["r4"]))
 
-#     # iLog(strMsg)    #can be commented later
-   
-#     #Warning: No initialisation done
-#     if strMsg == "NIFTY_CE" :
-#         ins_nifty_opt = ins_nifty_ce
-#         option_type = "CE"
-#     elif strMsg == "NIFTY_PE" :
-#         ins_nifty_opt = ins_nifty_pe
-#         option_type = "PE"
+        elif dict_opt["s1"] <= last_price < dict_opt["pp"] :
+            # S/R to Level Mapping: pp=0, r1=1, r2=2, r3=3, r4=4
+            # place_order(user,ins_opt,qty,float(dict_opt["pp"]))
+            if 1 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[1],float(dict_opt["r1"]))
+            if 2 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[2],float(dict_opt["r2"]))
+            if 3 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[3],float(dict_opt["r3"]))
+            if 4 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[4],float(dict_opt["r4"]))
+            if 5 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[5],float(dict_opt["r4"]) + ( float(dict_opt["r4"]) - float(dict_opt["r3"]) ) )
 
-#     strMsg = strMsg + f" {ins_nifty_opt[2]}" + " Limit Price=" + str(lt_price) + " SL=" + str(nifty_sl)
+        elif dict_opt["pp"] <= last_price < dict_opt["r1"] :
+            # S/R to Level Mapping: r1=0, r2=1, r3=2, r4=3
+            # place_order(user,ins_opt,qty,float(dict_opt["r1"]))
+            if 1 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[1],float(dict_opt["r2"]))
+            if 2 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[2],float(dict_opt["r3"]))
+            if 3 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[3],float(dict_opt["r4"]))
+            if 4 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[4],float(dict_opt["r4"]) + ( float(dict_opt["r4"]) - float(dict_opt["r3"]) ) )
+            if 5 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[5],float(dict_opt["r4"]) + 2*( float(dict_opt["r4"]) - float(dict_opt["r3"]) ) )
 
-    
-#     if lt_price<nifty_limit_price_low or lt_price>nifty_limit_price_high :
-#         strMsg = strMsg + " buy_nifty(): Limit Price not in buying range."
-#         iLog(strMsg,2,sendTeleMsg=True)
-#         return
-    
-#     if not trade_nifty:
-#         strMsg = strMsg + " buy_nifty(): trade_nifty=0. Order not initiated."
-#         iLog(strMsg,2,sendTeleMsg=True)
-#         return
+        elif dict_opt["r1"] <= last_price < dict_opt["r2"] :
+            # S/R to Level Mapping: r2=0, r3=1, r4=2
+            # place_order(user,ins_opt,qty,float(dict_opt["r2"]))
+            if 1 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[1],float(dict_opt["r3"]))
+            if 2 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[2],float(dict_opt["r4"]))
+            if 3 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[3],float(dict_opt["r4"]) + ( float(dict_opt["r4"]) - float(dict_opt["r3"]) ) )
+            if 4 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[4],float(dict_opt["r4"]) + 2*( float(dict_opt["r4"]) - float(dict_opt["r3"]) ) )
+            if 5 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[5],float(dict_opt["r4"]) + 3*( float(dict_opt["r4"]) - float(dict_opt["r3"]) ) )
 
-#     if not check_trade_time_zone("NIFTY"):
-#         strMsg = strMsg + " buy_nifty(): No trade time zone. Order not initiated."
-#         iLog(strMsg,2,sendTeleMsg=True)
-#         return
+        elif dict_opt["r2"] <= last_price < dict_opt["r3"] :
+            # S/R to Level Mapping: r3=0, r4=1
+            # place_order(user,ins_opt,qty,float(dict_opt["r3"]))
+            if 1 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[1],float(dict_opt["r4"]))
+            if 2 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[2],float(dict_opt["r4"]) + ( float(dict_opt["r4"]) - float(dict_opt["r3"]) ) )
+            if 3 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[3],float(dict_opt["r4"]) + 2*( float(dict_opt["r4"]) - float(dict_opt["r3"]) ) )
+            if 4 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[4],float(dict_opt["r4"]) + 3*( float(dict_opt["r4"]) - float(dict_opt["r3"]) ) )
+            if 5 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[5],float(dict_opt["r4"]) + 4*( float(dict_opt["r4"]) - float(dict_opt["r3"]) ) )
+
+        else:
+            iLog(f"[{user['userid']}] place_option_orders_CEPE(): flgMeanReversion=True, Unable to find pivots and place order for {ins_opt}")
+
+    else:
+        # Regular orders for fresh positions or new position for next strike for mean reversion
+        if dict_opt["s3"] <= last_price < dict_opt["s2"] : 
+            if 0 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[0],float(dict_opt["s2"]))
+            if 1 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[1],float(dict_opt["s1"]))
+            if 2 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[2],float(dict_opt["pp"]))
+            if 3 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[3],float(dict_opt["r1"]))
+            if 4 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[4],float(dict_opt["r2"]))
+            if 5 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[5],float(dict_opt["r3"]))
         
-#     if option_type == 'CE':
-#         if pos_nifty_pe > 0:    #Check if PE position exists and squareoff if it exits.
-#             close_all_orders("NIFTY_PE")
+        if dict_opt["s2"] <= last_price < dict_opt["s1"] :
+            if 0 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[0],float(dict_opt["s1"]))
+            if 1 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[1],float(dict_opt["pp"]))
+            if 2 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[2],float(dict_opt["r1"]))
+            if 3 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[3],float(dict_opt["r2"]))
+            if 4 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[4],float(dict_opt["r3"]))
+            if 5 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[5],float(dict_opt["r4"]))
 
-#         if pos_nifty_ce > 0:
-#             strMsg = f"buy_nifty(): Position already exists={pos_nifty_ce}. " + strMsg    #do not buy if position already exists; 
-#             iLog(strMsg,sendTeleMsg=True)
-#             return
-        
-#     elif option_type == 'PE':
-#         if pos_nifty_ce > 0:    #Check if CE position exists and squareoff if it exits.
-#             close_all_orders("NIFTY_CE")
+        elif dict_opt["s1"] <= last_price < dict_opt["pp"] :
+            if 0 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[0],float(dict_opt["pp"]))
+            if 1 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[1],float(dict_opt["r1"]))
+            if 2 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[2],float(dict_opt["r2"]))
+            if 3 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[3],float(dict_opt["r3"]))
+            if 4 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[4],float(dict_opt["r4"]))
 
-#         if pos_nifty_pe > 0:
-#             strMsg = f"buy_nifty(): Position already exists={pos_nifty_pe}. " + strMsg    #do not buy if position already exists; 
-#             iLog(strMsg,sendTeleMsg=True)
-#             return
+        elif dict_opt["pp"] <= last_price < dict_opt["r1"] :
+            if 0 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[0],float(dict_opt["r1"]))
+            if 1 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[1],float(dict_opt["r2"]))
+            if 2 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[2],float(dict_opt["r3"]))
+            if 3 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[3],float(dict_opt["r4"]))
 
+        elif dict_opt["r1"] <= last_price < dict_opt["r2"] :
+            if 0 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[0],float(dict_opt["r2"]))
+            if 1 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[1],float(dict_opt["r3"]))
+            if 2 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[2],float(dict_opt["r4"]))
 
-#     if trade_limit_reached("NIFTY"):
-#         strMsg = strMsg + "buy_nifty(): NIFTY Trade limit reached."
-#         iLog(strMsg,2,sendTeleMsg=True)
-#         return
+        elif dict_opt["r2"] <= last_price < dict_opt["r3"] :
+            if 0 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[0],float(dict_opt["r3"]))
+            if 1 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[1],float(dict_opt["r4"]))
 
-#     # Cancel pending buy orders and close existing sell orders if any
-#     #close_all_orders("NIFTY")  #Not required or SL can be updated to be market order
-        
-#     if nifty_ord_type == "MIS" : 
-#         #---- Intraday order (MIS) , Market Order
-#         # order = squareOff_MIS(TransactionType.Buy, ins_nifty_opt,nifty_bo1_qty)
-#         # order_tag = datetime.datetime.now().strftime("NF_%H%M%S")
-        
-#         bo1_qty = nifty_bo1_qty
-#         if enableBO2_nifty: 
-#             bo1_qty = nifty_bo1_qty*2
-        
-        
-#         order = squareOff_MIS(TransactionType.Buy, ins_nifty_opt, bo1_qty, OrderType.Limit, lt_price)
-#         if order['status'] == 'success':
-#             strMsg = strMsg + " buy_nifty(): Initiating place_sl_order(). main_order_id==" +  str(order['data']['oms_order_id'])
-#             iLog(strMsg,sendTeleMsg=True)   # Can be commented later
-#             t = threading.Thread(target=place_sl_order,args=(order['data']['oms_order_id'],"NIFTY",ins_nifty_opt,))
-#             t.start()
+        else:
+            iLog(f"[{user['userid']}] place_option_orders_CEPE(): flgMeanReversion=False, Unable to find pivots and place order for {ins_opt}")
 
-#         else:
-#             strMsg = strMsg + ' buy_nifty(): MIS Order Failed.' + order['message']
-#             iLog(strMsg,sendTeleMsg=True)
-
-#     elif nifty_ord_type == "BO" :
-#         #---- First Bracket order for initial target
-#         order = buy_signal(ins_nifty_opt,nifty_bo1_qty,lt_price,nifty_sl,nifty_tgt1,nifty_tsl)    #SL to be float; 
-#         if order['status'] == 'success' :
-#             # buy_order1_nifty = order['data']['oms_order_id']
-#             strMsg = strMsg + " 1st BO order_id=" + str(order['data']['oms_order_id'])
-#         else:
-#             strMsg = strMsg + ' buy_nifty() 1st BO Failed.' + order['message']
-
-#         #---- Second Bracket order for open target
-#         if enableBO2_nifty:
-#             # lt_price, nifty_sl = get_trade_price("NIFTY","BUY",nifty_ord_exec_level2)   # Get trade price and SL for BO2
-#             order = buy_signal(ins_nifty_opt,nifty_bo2_qty,lt_price,nifty_sl,nifty_tgt2,nifty_tsl)
-#             strMsg = strMsg + " BO2 Limit Price=" + str(lt_price) + " SL=" + str(nifty_sl)
-#             if order['status'] == 'success':
-#                 # buy_order2_nifty = order['data']['oms_order_id']
-#                 strMsg = strMsg + " 2nd BO order_id=" + str(order['data']['oms_order_id'])
-#             else:
-#                 strMsg=strMsg + ' buy_nifty() 2nd BO Failed.' + order['message']
-
-#         #---- Third Bracket order for open target
-#         if enableBO3_nifty:  
-#             # lt_price, nifty_sl = get_trade_price("NIFTY","BUY",nifty_ord_exec_level3)   # Get trade price and SL for BO3
-#             order = buy_signal(ins_nifty_opt,nifty_bo3_qty,lt_price,nifty_sl,nifty_tgt3,nifty_tsl)
-#             strMsg = strMsg + " BO3 Limit Price=" + str(lt_price) + " SL=" + str(nifty_sl)
-#             if order['status']=='success':
-#                 # buy_order3_nifty = order['data']['oms_order_id']
-#                 strMsg = strMsg + " 3rd BO order_id=" + str(order['data']['oms_order_id'])
-#             else:
-#                 strMsg=strMsg + ' buy_nifty() 3rd BO Failed.' + order['message']
-
-#         iLog(strMsg,sendTeleMsg=True)
-
-# def buy_bank_options(strMsg):
-#     '''Buy Banknifty options '''
-#     global df_bank
-#     option_type = ""
-
-#     df_bank.iat[-1,5] = "B"  # v1.1 set signal column value
-
-
-#     # strMsg == CE | PE 
-#     lt_price, bank_sl = get_trade_price_options(strMsg)   # Get trade price and SL for BO1 
-   
-#     df_bank.iat[-1,6] = bank_sl  # v3.7 set sl column value. This is only for BO1; rest BOs will different SLs 
-
-#     # iLog(strMsg)    #can be commented later
-
-#     #Warning: No initialisation done
-#     if strMsg == "BANK_CE" :
-#         ins_bank_opt = ins_bank_ce
-#         option_type = "CE"
-
-#     elif strMsg == "BANK_PE" :
-#         ins_bank_opt = ins_bank_pe
-#         option_type = "PE"
-    
-
-#     strMsg = strMsg + f" {ins_bank_opt[2]}" + " Limit Price=" + str(lt_price) + " SL=" + str(bank_sl)
-
-    
-#     if lt_price<bank_limit_price_low or lt_price>bank_limit_price_high :
-#         strMsg = strMsg + " buy_bank(): Limit Price not in buying range."
-#         iLog(strMsg,2,sendTeleMsg=True)
-#         return
-
-#     if not trade_banknifty :
-#         strMsg = strMsg + " buy_bank(): trade_banknifty=0. Order not initiated."
-#         iLog(strMsg,2,sendTeleMsg=True)
-#         return
-
-#     if not check_trade_time_zone("NIFTY"):
-#         strMsg = strMsg + " buy_bank(): No trade time zone. Order not initiated."
-#         iLog(strMsg,2,sendTeleMsg=True)
-#         return
-    
-#     if option_type == 'CE':
-#         if pos_bank_ce > 0:   # Position updates in MTM check
-#             strMsg = f"buy_bank(): Position already exists={pos_bank_ce}. " + strMsg    #do not buy if position already exists; 
-#             iLog(strMsg,sendTeleMsg=True)
-#             return
-
-#     elif option_type == 'PE':
-#             if pos_bank_pe > 0:   # Position updates in MTM check
-#                 strMsg = f"buy_bank(): Position already exists={pos_bank_pe}. " + strMsg    #do not buy if position already exists; 
-#                 iLog(strMsg,sendTeleMsg=True)
-#                 return
-
-
-#     if trade_limit_reached("BANKN"):
-#         strMsg = strMsg + "buy_bank(): BankNIFTY Trade limit reached."
-#         iLog(strMsg,2,sendTeleMsg=True)
-#         return
-
-#     # Cancel pending buy orders and close existing sell orders if any
-#     #close_all_orders("BANKN_CE")   #Not required or SL can be updated to be market order
-    
-#     if bank_ord_type == "MIS" : 
-#         #---- Intraday order (MIS) , Market Order
-#         # order = squareOff_MIS(TransactionType.Buy, ins_bank_opt,bank_bo1_qty)
-#         # order_tag = datetime.datetime.now().strftime("BN_%H%M%S")
-#         # IF BO2 is enabled then trade quantity needs to be doubled. Two SL/TGT Orders will be placed with the below quantity 
-#         bo1_qty = bank_bo1_qty
-#         if enableBO2_bank: 
-#             bo1_qty = bank_bo1_qty*2
-        
-#         order = squareOff_MIS(TransactionType.Buy, ins_bank_opt, bo1_qty, OrderType.Limit, lt_price)
-#         if order['status'] == 'success':
-#             strMsg = strMsg + " buy_bank(): Initiating place_sl_order(). main_order_id=" + str(order['data']['oms_order_id']) 
-#             iLog(strMsg,sendTeleMsg=True)   # Can be commented later
-#             t = threading.Thread(target=place_sl_order,args=(order['data']['oms_order_id'],"BANK",ins_bank_opt,))
-#             t.start()
-
-#         else:
-#             strMsg = strMsg + ' buy_bank(): MIS Order Failed.' + order['message']
-#             iLog(strMsg,sendTeleMsg=True)
-
-#     # BO option may not work as usually BO is disabled in alice blue for options, hence not updating the below code for BO
-#     elif bank_ord_type == "BO" :
-#         #---- First Bracket order for initial target
-#         order = buy_signal(ins_bank_opt,bank_bo1_qty,lt_price,bank_sl,bank_tgt1,bank_tsl)    #SL to be float; 
-#         if order['status'] == 'success' :
-#             # buy_order1_bank = order['data']['oms_order_id']
-#             strMsg = strMsg + " 1st BO order_id=" + str(order['data']['oms_order_id'])
-#         else:
-#             strMsg = strMsg + ' buy_bank() 1st BO Failed.' + order['message']
-
-#         #---- Second Bracket order for open target
-#         if enableBO2_bank:
-#             # lt_price, bank_sl = get_trade_price("NIFTY","BUY",bank_ord_exec_level2)   # Get trade price and SL for BO2
-#             order = buy_signal(ins_bank_opt,bank_bo2_qty,lt_price,bank_sl,bank_tgt2,bank_tsl)
-#             strMsg = strMsg + " BO2 Limit Price=" + str(lt_price) + " SL=" + str(bank_sl)
-#             if order['status'] == 'success':
-#                 # buy_order2_bank = order['data']['oms_order_id']
-#                 strMsg = strMsg + " 2nd BO order_id=" + str(order['data']['oms_order_id'])
-#             else:
-#                 strMsg=strMsg + ' buy_bank() 2nd BO Failed.' + order['message']
-
-#         #---- Third Bracket order for open target
-#         if enableBO3_bank:  
-#             # lt_price, bank_sl = get_trade_price("NIFTY","BUY",bank_ord_exec_level3)   # Get trade price and SL for BO3
-#             order = buy_signal(ins_bank_opt,bank_bo3_qty,lt_price,bank_sl,bank_tgt3,bank_tsl)
-#             strMsg = strMsg + " BO3 Limit Price=" + str(lt_price) + " SL=" + str(bank_sl)
-#             if order['status']=='success':
-#                 # buy_order3_bank = order['data']['oms_order_id']
-#                 strMsg = strMsg + " 3rd BO order_id=" + str(order['data']['oms_order_id'])
-#             else:
-#                 strMsg=strMsg + ' buy_bank() 3rd BO Failed.' + order['message']
-
-#         iLog(strMsg,sendTeleMsg=True)
 
 def subscribe_ins():
     try:
@@ -665,6 +679,7 @@ def subscribe_ins():
         iLog("subscribe_ins(): Exception="+ str(ex),3)
 
     iLog("subscribe_ins().")
+
 
 def close_all_orders(opt_index="ALL",buy_sell="ALL",ord_open_time=0):
     '''Cancel pending orders. opt_index=ALL/BANKN/NIFTY , buy_sell = ALL/BUY/SELL'''
@@ -755,6 +770,7 @@ def close_all_orders(opt_index="ALL",buy_sell="ALL",ord_open_time=0):
 
     iLog("close_all_orders(): opt_index={},buy_sell={},ord_open_time={}".format(opt_index,buy_sell,ord_open_time)) #6 = Activity/Task done
 
+
 def check_MTM_Limit():
     ''' Checks and returns the current MTM and sets the trading flag based on the limit specified in the 
     .ini. This needs to be called before buy/sell signal generation in processing. 
@@ -827,84 +843,6 @@ def check_MTM_Limit():
 
     return mtm
 
-def get_trade_price_options(bank_nifty):
-    '''Returns the trade price and stop loss abs value for bank/nifty=CRUDE/NIFTY
-    buy_sell=BUY/SELL, bo_level or Order execution level = 1(default means last close),2,3 and 0 for close -1 for market order
-    '''
-
-    iLog(f"In get_trade_price_options():{bank_nifty}")
-
-    lt_price = 0.0
-
-    # atr = 0
-    sl = nifty_sl
-
-    # Refresh the tokens and ltp
-    if bank_nifty == "NIFTY_CE" or bank_nifty == "NIFTY_PE":
-        get_option_tokens("NIFTY")
-    elif bank_nifty == "BANK_CE" or bank_nifty == "BANK_PE":
-        get_option_tokens("BANK")
-
-    # 1. Set default limit price, below offset can be parameterised
-    if bank_nifty == "NIFTY_CE" :
-        lt_price = int(ltp_nifty_ATM_CE) + nifty_limit_price_offset # Set Default trade price
-    elif bank_nifty == "NIFTY_PE" :
-        lt_price = int(ltp_nifty_ATM_PE) + nifty_limit_price_offset # Set Default trade price
-    elif bank_nifty == "BANK_CE" :
-        lt_price = int(ltp_bank_ATM_CE) + bank_limit_price_offset
-    elif bank_nifty == "BANK_PE" :
-        lt_price = int(ltp_bank_ATM_PE) + bank_limit_price_offset
-    else:
-        print("get_trade_price_options1",flush=True)
-    
-    lt_price = float(lt_price)
-    print("get_trade_price_options(): lt_price={}".format(lt_price),flush=True)
-    
-    return lt_price, sl
-
-def trade_limit_reached(bank_nifty="NIFTY"):
-    # Check if completed order can work here
-    '''Check if number of trades reached/crossed the parameter limit . Return true if reached or crossed else false.
-     Dont process the Buy/Sell order if returns true
-     bank_nifty=CRUDE/NIFTY '''
-    
-    trades_cnt = 0  # Number of trades, needs different formula in case of nifty / bank
-    buy_cnt = 0
-    sell_cnt = 0
-
-    try:
-        trade_book = alice.get_trade_book()
-        if len(trade_book['data']) == 0 :
-            return False        # No Trades
-        else:
-            trades = trade_book['data']['trades'] #Get all trades
-    
-    except Exception as ex:
-        iLog("trade_limit_reached(): Exception="+ str(ex),3)
-        return True     # To be safe in case of exception
-
-    if not trades:
-        iLog("trade_limit_reached(): No Trades found for "+ str(bank_nifty))
-        return False        # No trades, hence go ahead
-
-    for c_trade in trades:
-        if bank_nifty == c_trade['trading_symbol'][:5]:
-            if c_trade['transaction_type'] == "BUY" :
-                buy_cnt = buy_cnt + 1
-            elif c_trade['transaction_type'] == "SELL" :
-                 sell_cnt = sell_cnt + 1
-
-    iLog(f"trade_limit_reached(): buy_cnt={buy_cnt}, sell_cnt={sell_cnt}")            
-    
-    if buy_cnt > sell_cnt:
-        trades_cnt = buy_cnt
-    else:
-        trades_cnt = sell_cnt
-
-    if trades_cnt >= no_of_trades_limit:
-        return True
-    else:
-        return False
 
 def set_config_value(section,key,value):
     '''Set the config file (.ini) value. Applicable for setting only one parameter value. 
@@ -920,18 +858,6 @@ def set_config_value(section,key,value):
     except Exception as ex:
         iLog("Exception writing to config. section={},key={},value={},ex={}".format(section,key,value,ex),2)
 
-# def check_trade_time_zone(bank_nifty="NIFTY"):
-#     result = False
-
-#     cur_time = int(datetime.datetime.now().strftime("%H%M"))
-
-#     # if bank_nifty=="CRUDE" and (cur_time > curde_trade_start_time and cur_time < curde_trade_end_time) :
-#     #     result = True
-
-#     if bank_nifty=="NIFTY" and (cur_time > nifty_trade_start_time and cur_time < nifty_trade_end_time) :
-#         result = True
-
-#     return result
 
 def get_option_tokens(nifty_bank="ALL"):
     '''This procedure sets the current option tokens to the latest ATM tokens
@@ -942,13 +868,11 @@ def get_option_tokens(nifty_bank="ALL"):
 
     #WIP
     global token_nifty_ce, token_nifty_pe, ins_nifty_ce, ins_nifty_pe, \
-        token_bank_ce, token_bank_pe, ins_bank_ce, ins_bank_pe
-
-
+        token_bank_ce, token_bank_pe, ins_bank_ce, ins_bank_pe,\
+        dict_nifty_ce, dict_nifty_pe
 
     # print("expiry_date=",expiry_date,flush=True)
     # print("weekly_expiry_holiday_dates=",weekly_expiry_holiday_dates,flush=True)
-
 
 
     if nifty_bank=="NIFTY" or nifty_bank=="ALL":
@@ -1008,6 +932,10 @@ def get_option_tokens(nifty_bank="ALL"):
 
             # print("token_bank_ce=",token_bank_ce,flush=True)
             # print("token_bank_pe=",token_bank_pe,flush=True)
+            
+            # Calculate pivot points for nitfy option CE and PE
+            # dict_nifty_ce = get_pivot_points(ins_nifty_ce,strike_ce)
+            # dict_nifty_pe = get_pivot_points(ins_nifty_pe,strike_pe)
 
         else:
             iLog(f"len(lst_bank_ltp)={len(lst_bank_ltp)}")
@@ -1015,78 +943,51 @@ def get_option_tokens(nifty_bank="ALL"):
     time.sleep(2)
     
     if nifty_bank=="NIFTY" or nifty_bank=="ALL":
-        iLog(f"ltp_nifty_ATM_CE={ltp_nifty_ATM_CE}, ltp_nifty_ATM_PE={ltp_nifty_ATM_PE}")        
-    
+        iLog(f"ltp_nifty_ATM_CE={ltp_nifty_ATM_CE}, ltp_nifty_ATM_PE={ltp_nifty_ATM_PE}")
+        
+        if ltp_nifty_ATM_CE<1:
+            print(f"Waiting for 3 more seconds to refresh the LTP")
+            time.sleep(3)
+            iLog(f"ltp_nifty_ATM_CE={ltp_nifty_ATM_CE}, ltp_nifty_ATM_PE={ltp_nifty_ATM_PE}")
+
+        dict_nifty_ce["last_price"] = ltp_nifty_ATM_CE
+        dict_nifty_pe["last_price"] = ltp_nifty_ATM_PE
+
     if nifty_bank=="BANK" or nifty_bank=="ALL":
         iLog(f"ltp_bank_ATM_CE={ltp_bank_ATM_CE}, ltp_bank_ATM_PE={ltp_bank_ATM_PE}")  
 
-def check_orders():
-    ''' 1. Checks for pending SL orders and update/maintain local sl order dict 
-        2. Updates SL order to target price if reached
-        2.1 Update SL order target price and trigger price to TSL, ltp - tsl used to find new SL price and not ltp - (tsl+sl)
+
+def process_orders():
     '''
-    # iLog("In check_orders()")   # can be disabled later to reduce logging  
+    1. Check positions
+    2. If position already exists
+        2.1 Check if orders exists for those position , if yes do nothing
+        2.2 Else get pivot points for this position symbol and place orders
+    3. If position does not exist
+        3.1 Place order for the current option
+    '''
+     
+    pos = alice.get_netwise_positions() # Returns list of dicts if position is there else returns dict {'emsg': 'No Data', 'stat': 'Not_Ok'}
+    if type(pos)==list:
+        df_pos = pd.DataFrame(pos)
+        print("df_pos:=")
+        print(df_pos)
 
-    #1 Remove completed orders/keep only pending orders from the SL orders dict
-    try:
-        orders = alice.get_order_history()['data']['pending_orders']
-        if orders:
-            # iLog(f"check_orders():orders={orders}\n dict_sl_orders={dict_sl_orders}")   #To be commented later
-            # loop through Sl orders dict and check if its in the pending order list 
-            for key, value in dict_sl_orders.items():
-                order_found = False
-                for order in orders:
-                    if key == order['oms_order_id']:
-                        order_found = True
-                        break
-                
-                # remove the order from sl dict which is not pending
-                if not order_found:
-                    dict_sl_orders.pop(key)
-                    iLog(f"In check_orders(): Removed order {key} from dict_sl_orders")
-        
-        else:
-            dict_sl_orders.clear()
-        
-    except:
-        pass
-    
-    
-    # print("dict_ltp=",dict_ltp,flush=True)
+        mtm = sum(pd.to_numeric(df_pos.MtoM.str.replace(",","")))
+        pos_nifty = sum(pd.to_numeric(df_pos[df_pos.Symbol=='NIFTY'].Netqty))
+        pos_bank = sum(pd.to_numeric(df_pos[df_pos.Symbol=='BANKNIFTY'].Netqty))
+        print(f"mtm={mtm} pos_nifty={pos_nifty} pos_bank={pos_bank}")
 
-    #2. Check the current price of the SL orders and if they are above tgt modify them to target price
-    # dict_sl_orders => key=order ID : value = [0-token, 1-target price, 2-instrument, 3-quantity, 4-SL Price]
-    tsl = bank_tsl  #+ bank_sl
-    # iLog(f"tsl={tsl}")
-    for oms_order_id, value in dict_sl_orders.items():
-        
-        ltp = dict_ltp[value[0]]
-        if value[2][2][:5]=="BANKN":    #Check if the instrument is nifty or banknifty and get the tsl accordingly
-            tsl = bank_tsl
-        else:
-            tsl = nifty_tsl
-        
-        iLog(f"In check_orders(): oms_order_id={oms_order_id}, ltp={ltp}, Target={float(value[1])}, bank_tsl={bank_tsl}, SL Price={float(value[4])}")
-        #Set Target Price : current ltp > target price
-        if ltp > value[1] :
-            try:
-                alice.modify_order(TransactionType.Sell,value[2],ProductType.Intraday,oms_order_id,OrderType.Limit,value[3], price=float(value[1]))
-                iLog(f"In check_orders(): BullsEye! Target price for OrderID {oms_order_id} modified to {value[1]}")
-            
-            except Exception as ex:
-                iLog("In check_orders(): Exception occured during Target price modification = " + str(ex),3)
 
-        #Set StopLoss(TargetPrice) to Trailing SL
-        elif (ltp - value[4]) > tsl :
-            tsl_price = float(int(ltp - tsl))
-            try:
-                alice.modify_order(TransactionType.Sell,value[2],ProductType.Intraday,oms_order_id,OrderType.StopLossLimit,value[3], tsl_price,tsl_price )
-                #Update dictionary with the new SL price
-                dict_sl_orders.update({oms_order_id:[value[0], value[1], value[2], value[3],tsl_price]} )
-                iLog(f"In check_orders(): TSL for OrderID {oms_order_id} modified to {tsl_price}")
-                # \n dict_sl_orders={dict_sl_orders}
-            except Exception as ex:
-                iLog("In check_orders(): Exception occured during TSL modification = " + str(ex),3)
+
+    # df_orders.Status=='open'    # open / complete 
+
+    orders = alice.get_order_history('')
+    if type(orders)==list:
+        df_orders = pd.DataFrame(orders)
+        print("df_orders:=")
+        print(df_orders)
+
 
 def get_pivot_points(instrument,strike_price):
     '''Calculates and returns the pivot points as dict for the given instrument'''
@@ -1107,7 +1008,7 @@ def get_pivot_points(instrument,strike_price):
     # symbol="NIFTY" symbol="BANKNIFTY"
     # df_hist_ce = get_history(symbol=symbol, start=from_date, end=to_date, index=True, option_type='CE', strike_price=strike_price,
                 # expiry_date=expiry_date)[['Open','High','Low','Close']]
-        print("dict_ohlc:\n",dict_ohlc)
+        # print("dict_ohlc:\n",dict_ohlc)
 
         # Calculate Pivot Points and update the dictionary
         last_high = dict_ohlc["high"]
@@ -1125,6 +1026,7 @@ def get_pivot_points(instrument,strike_price):
         dict_ohlc["s3"] = s3 = round(pp - 2 * (last_high - last_low))
 
         dict_ohlc["symbol"] = instrument.name
+        dict_ohlc["instrument"] = instrument
 
         iLog(f"Pivot Points for {instrument.name} :  {s3}(s3) {s2}(s2) {s1}(s1) {pp}(pp) {r1}(r1) {r2}(r2) {r3}(r3) {r4}(r4)")
 
@@ -1134,27 +1036,50 @@ def get_pivot_points(instrument,strike_price):
         iLog(f"Unable to fetch pivor points for token {instrument.name}. Error : {ex}")
         return {}
 
-    # iLog("df_hist_ce=")
-    # iLog(df_hist_ce)
+
+def strategy1(user):
+    global strategy1_HHMM
+    strategy1_HHMM = 0
+    '''
+    For NIFTY
+    1. Check positions
+    2. If position already exists
+        2.1 Check if orders exists for those position , if yes do nothing
+        2.2 Else get pivot points for this position symbol and place orders
+    3. If position does not exist
+        3.1 Place order for the current option
+    '''
+    iLog("In strategy1(): ")
+    alice = user['broker_object'] 
+    pos = alice.get_netwise_positions() # Returns list of dicts if position is there else returns dict {'emsg': 'No Data', 'stat': 'Not_Ok'}
+    if type(pos)==list:
+        # Existing Positions present
+        iLog("strategy1(): Existing Positions found! No Order will be placed.")
+        pass
     
-    # if df_hist_ce.empty:
-    #     iLog(f"Unable to get previous day OHLC for symbol={instrument.name} {strike_price} CE {expiry_date}")
+    else:
+        iLog("strategy1(): Existing Positions not found. Checking for existing Orders...")
+        
+        orders = alice.get_order_history('')
+        if type(orders)==list:
+            iLog("strategy1(): Existing Orders found! No Order will be placed.")
+            pass
+        
+        else:
+            iLog("strategy1(): Existing Orders not found. New Orders will be placed...")
+            get_option_tokens("NIFTY")
+            if option_sell_type=='CE' or option_sell_type=='BOTH':
+                print("dict_nifty_ce:=")
+                print(dict_nifty_ce) 
+                place_option_orders_CEPE(user,False,dict_nifty_ce)
 
-    # else:
-    #     nifty_opt_ce_last_high = df_hist_ce.iloc[-1].high
-    #     nifty_opt_ce_last_low = df_hist_ce.iloc[-1].low
-    #     nifty_opt_ce_last_close = df_hist_ce.iloc[-1].close
+def strategy2():
+    global strategy2_HHMM
+    strategy2_HHMM=0
 
-    #     nifty_opt_ce_range = nifty_opt_ce_last_high - nifty_opt_ce_last_low
-    #     nifty_opt_ce_pp = round((nifty_opt_ce_last_high + nifty_opt_ce_last_low + nifty_opt_ce_last_close)/3)
-    #     nifty_opt_ce_r1 = round((2 * nifty_opt_ce_pp) - nifty_opt_ce_last_low)
-    #     nifty_opt_ce_r2 = round(nifty_opt_ce_pp + nifty_opt_ce_range)
-    #     nifty_opt_ce_r3 = round(nifty_opt_ce_pp + 2 * nifty_opt_ce_range)
-    #     # ???? Check if we need to divide / 2 and then round
-    #     nifty_opt_ce_r4 = nifty_opt_ce_r3 + round((nifty_opt_ce_r3 - nifty_opt_ce_r2))  
 
-    #     iLog(f"Pivot Points for {instrument.name}:")
-    #     iLog(f"{nifty_opt_ce_pp}, {nifty_opt_ce_r1}, {nifty_opt_ce_r2}, {nifty_opt_ce_r3}, {nifty_opt_ce_r4}")
+
+
 
 ########################################################################
 #       Alice Blue Socket Events
@@ -1227,28 +1152,17 @@ def close_callback():
 # Main program starts from here...
 
 
-iLog("User = " + susername)
+
 #print(str(datetime.datetime.now().strftime("%H:%M:%S")) + ' : '+susername,flush=True)
 
-# pya3
-alice = Aliceblue(user_id=susername,api_key=api_key)
-session_id = alice.get_session_id() # Get Session ID
+
+
 
 # To reuse pya3 session
 # session_id = 'FjpN4X03GyLL8XUGNFhJuNJ0Cqqr3Zj765b9XqRDzJult9ThGs6OXi2VQgT3otybKyX8Ja0WMVXlxmXjYCsnMygFepe55me3hkVD7843GfnJxu6Ep7BCq9SZtE1slvU51zSCQCVoXEyWPAQyEr7VGyu2m6VI0WiT6OkAJe8JKXtdsVdyLClvK8zcQmzvm2ztenY57bFeG9oogn1I2yG2Yz1xkYBxh2yDyJbHvOGVmXXMYXi5XGvHytnck0ZuxGpj'
 # alice = Aliceblue(user_id=susername,api_key=api_key,session_id=session_id)
 
-# Krishnavelu
-# Get session id
-# session_id = AliceBlue.login_and_get_sessionID(username=susername, password=spassword, twoFA = twofa,app_id = api_code,api_secret = api_secret)
-# session_id='pb23iGBuPeCntXLvZUBkjiE9ODYuMLPhR2YHCuDtEMgaIte2OKWoV56peXCr3g5vug6YYd1ESuIeUEzfWLZEicPmH3sPZENyvxQotDMSgIyszrg8FKDRv54aGzpLI4nhdrAQtpm2TbajetoFd45vptTkFqVSQUyAye8pqnaRsa4Z8sI3TZ253mac9qW2JW47IxGsWY9gJqsL82kdk44Rx4XPGYaj0H1ycsBRiYQHoMaCTQlCaShITB1Zj9xhsf4R'
 
-# use session id to create alice object, Connect to AliceBlue and download contracts
-# alice = AliceBlue(username = susername,session_id = session_id, master_contracts_to_download=['NFO','NSE','MCX'])
-# alice = AliceBlue(username = susername,session_id = session_id)
-
-
-iLog(f"session_id={session_id}")
 
 alice.get_contract_master("INDICES")
 alice.get_contract_master("NSE")
@@ -1261,8 +1175,8 @@ ins_bank = alice.get_instrument_by_symbol('INDICES', 'NIFTY BANK')
 
 # ins_crude = alice.get_instrument_by_symbol('MCX', 'CRUDEOIL22NOVFUT')
 
-iLog(f"ins_nifty={ins_nifty}")
-iLog(f"ins_bank={ins_bank}")
+# iLog(f"ins_nifty={ins_nifty}")
+# iLog(f"ins_bank={ins_bank}")
 
 
 # Start Websocket
@@ -1272,13 +1186,6 @@ iLog("Starting Websocket.",sendTeleMsg=True)
 alice.start_websocket(socket_open_callback=open_callback, socket_close_callback=close_callback,
                       socket_error_callback=error_callback, subscription_callback=event_handler_quote_update, run_in_background=True)
 
-# alice.start_websocket(subscribe_callback=event_handler_quote_update,
-#                     socket_open_callback=open_callback,
-#                     socket_close_callback=close_callback,
-#                     socket_error_callback=error_callback)
-
-
-# alice.start_websocket(subscribe_callback=event_handler_quote_update,socket_open_callback=open_callback)
 
 # Check with Websocket open status
 while(socket_opened==False):
@@ -1287,10 +1194,10 @@ while(socket_opened==False):
 
 
 subscribe_list = [ins_nifty]
-print("subscribe_list=",subscribe_list)
+# print("subscribe_list=",subscribe_list)
 
 alice.subscribe(subscribe_list)
-print("subscried to nifty")
+# print("subscried to nifty")
 
 # alice.subscribe(ins_crude, LiveFeedType.TICK_DATA)
 # print("subscried to crude")
@@ -1306,153 +1213,60 @@ ins_bank_opt = ins_bank
 
 
 
-# Subscribe to Nifty50
-# alice.subscribe(ins_nifty,LiveFeedType.TICK_DATA)
-
-# # Get instrument of Nifty ATM Option
-# ins_nifty50 = alice.get_instrument_by_symbol('NSE', 'Nifty 50')     #Instead of futures get Nifty 50 Index price 
-# print(ins_nifty50,flush=True)
-# alice.subscribe(ins_nifty50, LiveFeedType.COMPACT)
-
-time.sleep(5)   # Sleep so that tick for the ltp gets accumulated
-
 # subscribe_ins()
 
-# Get next week Expiry date
-expiry_date = datetime.date.today() + datetime.timedelta(((3-datetime.date.today().weekday()) % 7)+7)
-# Reduce one day if thurshday is a holiday
-if str(expiry_date) in weekly_expiry_holiday_dates :
-    expiry_date = expiry_date - datetime.timedelta(days=1)
-
-
-iLog(f"expiry_date={expiry_date}")
 
 # Get ATM /(+-offset) option tokens for Nifty and BankNifty
 get_option_tokens("NIFTY")
 
-# iLog("Done")
-# close_all_orders('NIFTY_CE')
-# sys.exit(0)
+iLog("Waiting for 5 seconds till websocket refreshes LTPs")
+time.sleep(5)   # Sleep so that tick for the ltp gets accumulated
 
 
 iLog("Starting tick processing.",sendTeleMsg=True)
 
+strategy1_executed=0
+strategy2_executed=0
 
 
-# sys.exit(0)
+# Test Area
+get_realtime_config()
+strategy1(user)
+sys.exit(0)
 
 ########################################################
 ####            MAIN PROGRAM START HERE ...         ####
 ########################################################  
 # Process tick data/indicators and generate buy/sell and execute orders
 cur_HHMM = int(datetime.datetime.now().strftime("%H%M"))
-while cur_HHMM > 914 and cur_HHMM<1532:
+while cur_HHMM > 914 and cur_HHMM<1732:
+    t1 = time.time()
+    
+    # Get realtime config changes from .ini file and reload variables
+    get_realtime_config()
+    
+    # Get MTM
+    # MTM = check_MTM_Limit()
+    if strategy1_HHMM==cur_HHMM and strategy1_executed==0:
+        iLog(f"Triggering Strategy1 at {cur_HHMM}",True)
+        strategy1()
+        strategy1_executed=1
+    elif strategy1_HHMM != cur_HHMM:
+        strategy1_executed=0
 
 
-    # if cur_HHMM > 914:
+    process_orders()
 
-    #     cur_min = datetime.datetime.now().minute 
+    # Checks SL orders and sets target, should be called every 10 seconds. check logs
+    # check_orders()  
 
-    #     # Below if block will run after every time interval specified in the .ini file
-    #     if( cur_min % interval == 0 and flg_min != cur_min):
+    #-- Find processing time and Log only if processing takes more than 2 seconds
+    t2 = time.time() - t1
+    if t2 > 2.0: 
+        strMsg="Processing time(secs)= {0:.2f}".format(t2)
+        iLog(strMsg,2)
 
-    #         flg_min = cur_min     # Set the minute flag to run the code only once post the interval
-    #         t1 = time.time()      # Set timer to record the processing time of all the indicators
-            
-    #         # Can include the below code to work in debug mode only
-    #         strMsg = "BN=" + str(len(lst_bank_ltp))
-    #         # if len(df_bank.index) > 0 : strMsg = strMsg + " "+str(df_bank.close.iloc[-1]) 
-
-    #         strMsg = strMsg +  " N="+ str(len(lst_nifty_ltp))
-    #         # if len(df_nifty.index) > 0 : strMsg = strMsg + " "+str(df_nifty.close.iloc[-1]) 
-
-
-    #         # Check MTM and stop trading if limit reached; This can be parameterised to % gain/loss
-    #         MTM = check_MTM_Limit()
-           
-            
-    #         if len(lst_bank_ltp) > 1:       # BANKNIFTY Candle
-    #             tmp_lst = lst_bank_ltp.copy()  # Copy the ticks to a temp list
-    #             lst_bank_ltp.clear()           # Reset the ticks list; There can be gap in the ticks during this step ???
-    #             #print(f"CRUDE: cur_min = {cur_min},len(tmp_lst)={len(tmp_lst)},i={i}",flush=True)
-    #             #Formation of candle
-    #             df_bank.loc[df_bank_cnt, df_cols]=[cur_HHMM, tmp_lst[0], max(tmp_lst), min(tmp_lst), tmp_lst[-1],"",0]
-    #             df_bank_cnt = df_bank_cnt + 1 
-    #             # open = df_bank.close.tail(3).head(1)  # First value  
-    #             strMsg = strMsg + " " + str(round(tmp_lst[-1]))      #Crude close 
-
-                    
-    #         if len(lst_nifty_ltp) > 1:       # Nifty Candle
-    #             tmp_lst = lst_nifty_ltp.copy()  # Copy the ticks to a temp list
-    #             lst_nifty_ltp.clear()           # Reset the ticks list
-    #             # print(f"NIFTY: cur_min = {cur_min},len(tmp_lst)={len(tmp_lst)}",flush=True)
-    #             # Formation of candle
-    #             df_nifty.loc[df_nifty_cnt,df_cols] = [cur_HHMM,tmp_lst[0],max(tmp_lst),min(tmp_lst),tmp_lst[-1],"",0]
-    #             df_nifty_cnt = df_nifty_cnt + 1
-    #             strMsg = strMsg + " " + str(round(tmp_lst[-1]))      #Nifty close
-
-    #         # Get realtime config changes from .ini file and reload variables
-    #         get_realtime_config()
-
-    #         strMsg = strMsg + f" POS(n,bn)=({pos_nifty_ce+pos_nifty_pe}, {pos_bank_ce+pos_bank_pe}), MTM={MTM}" 
-    #         iLog(strMsg,sendTeleMsg=True)
-
-
-
-    #         # ############## BANKNIFTY Order Generation #########################
-    #         if df_bank_cnt > 6 : 
-
-    #             # Logic for Buy/Sell will go here
-    #             strMsg=f"BankNifty: #={df_bank_cnt}, ltp_bank_ATM_CE={ltp_bank_ATM_CE}, ltp_bank_ATM_PE={ltp_bank_ATM_PE}"
-    #             iLog(strMsg)
-
-      
-    #         # ////////////// NIFTY Order Generation //////////////////////////
-    #         if df_nifty_cnt > 6 : 
-
-    #             strMsg=f"Nifty: #={df_nifty_cnt}, ltp_nifty_ATM_CE={ltp_nifty_ATM_CE}, ltp_nifty_ATM_PE={ltp_nifty_ATM_PE}"
-    #             iLog(strMsg)
-
-
-
-
-
-    #         #-- Find processing time and Log only if processing takes more than 2 seconds
-    #         t2 = time.time() - t1
-    #         if t2 > 2.0: 
-    #             strMsg="Processing time(secs)= {0:.2f}".format(t2)
-    #             iLog(strMsg,2)
-
-
- 
-
-        # if cur_HHMM > 1530 and cur_HHMM < 1532 :   # Exit the program post NSE closure
-        #     # Reset trading flag for bank if bank is enabled on the instance
-        #     if enable_bank : 
-        #         iLog("Enabling BankNifty trading...")
-        #         set_config_value("realtime","trade_banknifty","1")
-            
-        #     # Reset trading flag for nifty if nifty is enabled on the instance
-        #     if enable_NFO : 
-        #         iLog("Enabling NFO trading...")
-        #         set_config_value("realtime","trade_nifty","1")
-        
-        #     iLog("Closing down... Calling sys.exit() @ " + str(cur_HHMM),sendTeleMsg=True)
-        #     sys.exit(0)
-   
-
-            
-            # #-- Cancel all open Crude orders after 11:10 PM, time can be parameterised
-            # if cur_HHMM > bank_sqoff_time and not processCrudeEOD:
-            #     close_all_orders('CRUDE')
-            #     processCrudeEOD = True
-
-           
-            # #-- Check if any open order greater than pending_ord_limit_mins and cancel the same 
-            # close_all_orders(ord_open_time=pending_ord_limit_mins)
 
     time.sleep(interval_seconds)   # Default 30 Seconds
     cur_HHMM = int(datetime.datetime.now().strftime("%H%M"))
     # print("cur_HHMM=",cur_HHMM,flush=True)
-
-    check_orders()  # Checks SL orders and sets target, should be called every 10 seconds. check logs
