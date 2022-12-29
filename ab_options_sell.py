@@ -392,56 +392,62 @@ def auto_login_totp(user):
     password = user['password'] 
     twofa = user['twofa']
     totp_encrypt_key = user['totp_key']
+    ret_val = False
+
+    try:
+        totp = pyotp.TOTP(totp_encrypt_key)
+
+        url = BASE_URL+"/customer/getEncryptionKey"
+        payload = json.dumps({"userId": userId})
+        headers = {'Content-Type': 'application/json'}
+        response = requests.request("POST", url, headers=headers, data=payload,verify=True)
+        encKey = response.json()["encKey"]
+        checksum = CryptoJsAES.encrypt(password.encode(), encKey.encode()).decode('UTF-8')
 
 
-    totp = pyotp.TOTP(totp_encrypt_key)
+        url = BASE_URL+"/customer/webLogin"
+        payload = json.dumps({"userId": userId,"userData": checksum})
+        headers = {'Content-Type': 'application/json'}
 
-    url = BASE_URL+"/customer/getEncryptionKey"
-    payload = json.dumps({"userId": userId})
-    headers = {'Content-Type': 'application/json'}
-    response = requests.request("POST", url, headers=headers, data=payload,verify=True)
-    encKey = response.json()["encKey"]
-    checksum = CryptoJsAES.encrypt(password.encode(), encKey.encode()).decode('UTF-8')
+        response = requests.request("POST", url, headers=headers, data=payload,verify=True)
+        response_data = response.json()
 
 
-    url = BASE_URL+"/customer/webLogin"
-    payload = json.dumps({"userId": userId,"userData": checksum})
-    headers = {'Content-Type': 'application/json'}
+        url = BASE_URL+"/sso/2fa"
 
-    response = requests.request("POST", url, headers=headers, data=payload,verify=True)
-    response_data = response.json()
+        payload = json.dumps({
+        "answer1": twofa,
+        "userId": userId,
+        "sCount": str(response_data['sCount']),
+        "sIndex": response_data['sIndex']
+        })
 
+        headers = {'Content-Type': 'application/json'}
 
-    url = BASE_URL+"/sso/2fa"
-
-    payload = json.dumps({
-    "answer1": twofa,
-    "userId": userId,
-    "sCount": str(response_data['sCount']),
-    "sIndex": response_data['sIndex']
-    })
-
-    headers = {'Content-Type': 'application/json'}
-
-    response = requests.request("POST", url, headers=headers, data=payload,verify=True)
-
-    # print("response.json():")
-    # print(response.json())
-
-
-    if response.json()["loPreference"] == "TOTP" and response.json()["totpAvailable"]:
-        url = BASE_URL+"/sso/verifyTotp"
-        payload = json.dumps({"tOtp": totp.now(),"userId": userId})
-        headers = {'Authorization': 'Bearer '+userId+' '+response.json()['us'],'Content-Type': 'application/json'}
         response = requests.request("POST", url, headers=headers, data=payload,verify=True)
 
+        # print("response.json():")
+        # print(response.json())
 
-    if response.json()["userSessionID"]:
-        # print("Login Successfully",flush=True)
-        return True
-    else:
-        # print("User is not TOTP enabled! Please enable TOTP through mobile or web",flush=True)
-        return False
+
+        if response.json()["loPreference"] == "TOTP" and response.json()["totpAvailable"]:
+            url = BASE_URL+"/sso/verifyTotp"
+            payload = json.dumps({"tOtp": totp.now(),"userId": userId})
+            headers = {'Authorization': 'Bearer '+userId+' '+response.json()['us'],'Content-Type': 'application/json'}
+            response = requests.request("POST", url, headers=headers, data=payload,verify=True)
+
+
+        if response.json()["userSessionID"]:
+            # print("Login Successfully",flush=True)
+            ret_val = True
+        # else:
+        #     # print("User is not TOTP enabled! Please enable TOTP through mobile or web",flush=True)
+        #     return False
+
+    except Exception as ex:
+        iLog(f"[{userId}] Exception occured: {ex}")
+    
+    return ret_val
 
 
 def get_realtime_config():
@@ -966,14 +972,16 @@ def check_positions(user):
                 tradingsymbol = opt.Tsym
                 qty = opt.Netqty
                 MtoM = float(opt.MtoM.replace(",",""))
-                # Get the partial profit booking quantity
+                # # Get the partial profit booking quantity
                 
-                iLog(f"{strMsgSuffix} tradingsymbol={tradingsymbol} qty={qty} MtoM={MtoM} opt.ltp={opt.ltp}")
-                # Need to provision for partial profit booking
-                if (tradingsymbol[-2:] in ('CE','PE')) and (qty < 0) and (opt.mtm > opt.profit_target_amt) :
-                    # iLog(strMsgSuffix + f" Placing Squareoff order for tradingsymbol={tradingsymbol}, qty={qty}",True)
-                    place_order(kiteuser,tradingsymbol=tradingsymbol,qty=qty, transaction_type=kite.TRANSACTION_TYPE_BUY, order_type=kite.ORDER_TYPE_MARKET)
-                    kiteuser["partial_profit_booked_flg"]=1
+                # Aliceblue.squareoff_positions('NFO',)
+
+                # iLog(f"{strMsgSuffix} tradingsymbol={tradingsymbol} qty={qty} MtoM={MtoM} opt.ltp={opt.ltp}")
+                # # Need to provision for partial profit booking
+                # if (tradingsymbol[-2:] in ('CE','PE')) and (qty < 0) and (opt.mtm > opt.profit_target_amt) :
+                #     # iLog(strMsgSuffix + f" Placing Squareoff order for tradingsymbol={tradingsymbol}, qty={qty}",True)
+                #     place_order(kiteuser,tradingsymbol=tradingsymbol,qty=qty, transaction_type=kite.TRANSACTION_TYPE_BUY, order_type=kite.ORDER_TYPE_MARKET)
+                #     kiteuser["partial_profit_booked_flg"]=1
 
 
 
@@ -1035,6 +1043,7 @@ def strategy1(user):
     global strategy1_HHMM
     strategy1_HHMM = 0
     '''
+    Pivot levels based CE sell strategy
     Put trades based on the option type and strike selection and its pivots (now only for NIFTY)
     1. Check positions
     2. If position already exists
@@ -1045,6 +1054,8 @@ def strategy1(user):
     '''
     iLog("In strategy1(): ")
     alice = user['broker_object'] 
+    option_sell_type = user['option_sell_type']
+
     pos = alice.get_netwise_positions() # Returns list of dicts if position is there else returns dict {'emsg': 'No Data', 'stat': 'Not_Ok'}
     if type(pos)==list:
         # Existing Positions present
@@ -1069,10 +1080,15 @@ def strategy1(user):
 
 
 
-def strategy2():
+def strategy2(user):
+    # Do a strangle for price ~200 and keep SL of 70, add position to opposite leg when 50 SL is reached 
     global strategy2_HHMM
     strategy2_HHMM=0
 
+    iLog("In strategy1(): ")
+    alice = user['broker_object']
+    
+    print(alice) 
 
 
 
@@ -1279,32 +1295,44 @@ cur_HHMM = int(datetime.datetime.now().strftime("%H%M"))
 while cur_HHMM > 914 and cur_HHMM<1732:
     t1 = time.time()
     
-    # Get realtime config changes from .ini file and reload variables
+    # 1. Get realtime config changes from .ini file and reload variables
     get_realtime_config()
     
-    # Get MTM
-    # MTM = check_MTM_Limit()
+    
+    # 2. Execute Strategy1
     if strategy1_HHMM==cur_HHMM and strategy1_executed==0:
-        iLog(f"Triggering Strategy1 at {cur_HHMM}",True)
+        iLog(f"Triggering Strategy1 (CE Sell) at {cur_HHMM}",True)
         for user in users:
             strategy1(user)
-        
         strategy1_executed=1
+    
     elif strategy1_HHMM != cur_HHMM:
         strategy1_executed=0
 
+    
+    # 3. Execute Strategy2
+    if strategy2_HHMM==cur_HHMM and strategy2_executed==0:
+        iLog(f"Triggering Strategy2 (Strangle) at {cur_HHMM}",True)
+        for user in users:
+            strategy2(user)
+        strategy2_executed=1
+    
+    elif strategy2_HHMM != cur_HHMM:
+        strategy2_executed=0
+    
+    
+    
+    # 4. Check position, MTM and square off positions if applicable 
+    for user in users:
+        check_positions(user)
 
-    process_orders()
 
-    # Checks SL orders and sets target, should be called every 10 seconds. check logs
-    # check_orders()  
-
-    #-- Find processing time and Log only if processing takes more than 2 seconds
+    # 5. Find processing time and Log only if processing takes more than 2 seconds
     t2 = time.time() - t1
     if t2 > 2.0: 
         strMsg="Processing time(secs)= {0:.2f}".format(t2)
         iLog(strMsg,2)
 
-
+    # 6. Wait for the specified time interval before processing
     time.sleep(interval_seconds)   # Default 30 Seconds
     cur_HHMM = int(datetime.datetime.now().strftime("%H%M"))
