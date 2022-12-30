@@ -439,6 +439,7 @@ def auto_login_totp(user):
 
         if response.json()["userSessionID"]:
             # print("Login Successfully",flush=True)
+            iLog(f"Login Successful. SessionID: {response.json()['userSessionID']}")
             ret_val = True
         # else:
         #     # print("User is not TOTP enabled! Please enable TOTP through mobile or web",flush=True)
@@ -948,8 +949,8 @@ def check_positions(user):
     pos = alice.get_netwise_positions() # Returns list of dicts if position is there else returns dict {'emsg': 'No Data', 'stat': 'Not_Ok'}
     if type(pos)==list:
         df_pos = pd.DataFrame(pos)[['Symbol','Tsym','Netqty','MtoM']]
-        # print("df_pos:=")
-        # print(df_pos)
+        print("df_pos:=")
+        print(df_pos)
 
         
         df_pos['mtm'] = df_pos.MtoM.str.replace(",","").astype(float)
@@ -1285,7 +1286,7 @@ strategy2_executed=0
 # Test Area
 # get_realtime_config()
 # strategy1(user)
-# sys.exit(0)
+sys.exit(0)
 
 ########################################################
 ####            MAIN PROGRAM START HERE ...         ####
