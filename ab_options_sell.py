@@ -95,7 +95,7 @@ from Crypto.Cipher import AES
 import hashlib
 import base64
 import pyotp
-
+from dateutil.relativedelta import relativedelta, TH
 
 
 
@@ -117,7 +117,7 @@ log_to_file = int(cfg.get("tokens", "log_to_file"))
 # Enable logging to file
 # If log folder is not present create it
 if not os.path.exists("./log") : os.makedirs("./log")
-if log_to_file : sys.stdout = sys.stderr =  open(r"./log/ab_options_sell_" + datetime.now().strftime("%Y%m%d") +".log" , "a") 
+if log_to_file : sys.stdout = sys.stderr =  open(r"./log/ab_options_sell_" + datetime.datetime.now().strftime("%Y%m%d") +".log" , "a") 
 
 # sys.stdout = sys.stderr = open(LOG_FILE, "a")
 ###################################
@@ -142,7 +142,6 @@ def iLog(strLogText,LogType=1,sendTeleMsg=False):
 
 
 
-
 ######################################
 #       Initialise variables
 ######################################
@@ -153,6 +152,14 @@ read_settings_from_url = int(cfg.get("tokens", "read_settings_from_url"))
 settings_url = cfg.get("tokens", "settings_url")
 
 BASE_URL = cfg.get("tokens", "BASE_URL") 
+
+# Session id and related parameters tobe removed from the config file and below as well post testing for sometime
+# session_id = cfg.get("tokens", "session_id")
+# session_dt = cfg.get("tokens", "session_dt")
+# if session_dt == datetime.date.today().isoformat():
+#     iLog("Existing session will be reused.")
+# else:
+#     session_id = ""
 
 
 # read_settings_from_url = 'https://raw.githubusercontent.com/RajeshSivadasan/mysettings/main/ab_options_sell.ini'
@@ -207,8 +214,8 @@ strategy2_HHMM  = int(cfg.get("realtime", "strategy2_HHMM"))    # If set to 0 , 
 
 # nifty_lot_size = int(cfg.get("info", "nifty_lot_size"))
 
-#List of thursdays when its NSE holiday, hence reduce 1 day to get expiry date 
-weekly_expiry_holiday_dates = cfg.get("info", "weekly_expiry_holiday_dates").split(",")
+#List NSE holidays, hence reduce 1 day to get expiry date if it falls on thurshday 
+holiday_dates = cfg.get("info", "holiday_dates").split(",")
 
 
 interval_seconds = int(cfg.get("info", "interval_seconds"))   #3
@@ -316,8 +323,17 @@ if dow  in (next_week_expiry_days):  # next_week_expiry_days = 2,3,4
 else:
     expiry_date = datetime.date.today() + datetime.timedelta( ((3-datetime.date.today().weekday()) % 7))
 
-if str(expiry_date) in weekly_expiry_holiday_dates :
+if str(expiry_date) in holiday_dates :
     expiry_date = expiry_date - datetime.timedelta(days=1)
+
+
+# Get last thursday of next month for getting Next month Nifty Future Contract  
+dt_next_exp = ((datetime.date.today()+ relativedelta(months=1)) + relativedelta(day=31, weekday=TH(-1)))
+if str(dt_next_exp) in holiday_dates :
+    dt_next_exp = dt_next_exp - datetime.timedelta(days=1)
+
+
+
 
 
 # Get the trading levels and quantity multipliers to be followed for the day .e.g on Friday only trade reversion 3rd or 4th levels to be safe
@@ -450,7 +466,6 @@ def auto_login_totp(user):
     
     return ret_val
 
-
 def get_realtime_config():
     '''This procedure can be called during execution to get realtime values from the .ini file'''
 
@@ -481,7 +496,6 @@ def get_realtime_config():
     strategy1_HHMM  = int(cfg.get("realtime", "strategy1_HHMM"))    # If set to 0 , strategy is disabled
     strategy2_HHMM  = int(cfg.get("realtime", "strategy2_HHMM")) 
 
-
 def place_order(user, ins_scrip, qty, limit_price=0.0, buy_sell = TransactionType.Sell, order_type = OrderType.Limit, order_tag = "ab_options_sell"):
     '''
     Used for placing orders. Default is buy market orders for squareoff short positions 
@@ -490,7 +504,7 @@ def place_order(user, ins_scrip, qty, limit_price=0.0, buy_sell = TransactionTyp
     limit_price = limit price in case SL order needs to be placed 
     '''
     # global alice
-    alice = user['broker_object'] 
+    alice_ord = user['broker_object'] 
     ord_obj = {}
 
     if limit_price > 1 : 
@@ -504,7 +518,7 @@ def place_order(user, ins_scrip, qty, limit_price=0.0, buy_sell = TransactionTyp
         iLog(f"[{user['userid']}] place_order(): {ins_scrip.name} {qty} {buy_sell} {limit_price}")
 
         try:
-            ord_obj = alice.place_order(transaction_type = buy_sell,
+            ord_obj = alice_ord.place_order(transaction_type = buy_sell,
                             instrument = ins_scrip,
                             quantity = qty,
                             order_type = order_type,
@@ -521,7 +535,6 @@ def place_order(user, ins_scrip, qty, limit_price=0.0, buy_sell = TransactionTyp
             iLog(f"[{user['userid']}] place_order(): Exception occured {ex}",3)
 
     return ord_obj
-
 
 def place_option_orders_CEPE(user,flgMeanReversion,dict_opt):
     '''
@@ -742,14 +755,14 @@ def close_all_orders(opt_index="ALL",buy_sell="ALL",ord_open_time=0):
 
     iLog("close_all_orders(): opt_index={},buy_sell={},ord_open_time={}".format(opt_index,buy_sell,ord_open_time)) #6 = Activity/Task done
 
-
-def check_MTM_Limit():
+def check_MTM_Limit(user):
     ''' Checks and returns the current MTM and sets the trading flag based on the limit specified in the 
     .ini. This needs to be called before buy/sell signal generation in processing. 
     Also updates the postion counter for Nifty and bank which are used in buy/sell procs.'''
     
     global trade_banknifty, trade_nifty, pos_nifty_ce, pos_nifty_pe, pos_bank_ce, pos_bank_pe
 
+    alice_ord = user['broker_object']
     trading_symbol = ""
     mtm = 0.0
     pos_bank_ce = 0
@@ -760,7 +773,7 @@ def check_MTM_Limit():
 
     # Get position and mtm
     try:    # Get netwise postions (MTM)
-        pos = alice.get_netwise_positions()
+        pos = alice_ord.get_netwise_positions()
         if pos:
             for p in  pos:
                 mtm = mtm + float(p['MtoM'].replace(",",""))
@@ -815,7 +828,6 @@ def check_MTM_Limit():
 
     return mtm
 
-
 def set_config_value(section,key,value):
     '''Set the config file (.ini) value. Applicable for setting only one parameter value. 
     All parameters are string
@@ -829,7 +841,6 @@ def set_config_value(section,key,value):
             configfile.close()
     except Exception as ex:
         iLog("Exception writing to config. section={},key={},value={},ex={}".format(section,key,value,ex),2)
-
 
 def get_option_tokens(nifty_bank="ALL"):
     '''This procedure sets the current option tokens to the latest ATM tokens
@@ -934,19 +945,17 @@ def get_option_tokens(nifty_bank="ALL"):
     if nifty_bank=="BANK" or nifty_bank=="ALL":
         iLog(f"ltp_bank_ATM_CE={ltp_bank_ATM_CE}, ltp_bank_ATM_PE={ltp_bank_ATM_PE}")  
 
-
-
 def check_positions(user):
     '''
     1. Check positions
     2. If position exists, check overall MTM and squareoff the trade that has reached its target
     3. If position does not exist do nothing as order punching is done by strategy code
     '''
-    strMsgSuffix = f"[{user['userid']}] check_positions()"
+    strMsgSuffix = f"[{user['userid']}] check_positions():"
 
-    alice = user['broker_object'] 
+    alice_ord = user['broker_object'] 
 
-    pos = alice.get_netwise_positions() # Returns list of dicts if position is there else returns dict {'emsg': 'No Data', 'stat': 'Not_Ok'}
+    pos = alice_ord.get_netwise_positions() # Returns list of dicts if position is there else returns dict {'emsg': 'No Data', 'stat': 'Not_Ok'}
     if type(pos)==list:
         df_pos = pd.DataFrame(pos)[['Symbol','Tsym','Netqty','MtoM']]
         print("df_pos:=")
@@ -983,13 +992,8 @@ def check_positions(user):
                 #     # iLog(strMsgSuffix + f" Placing Squareoff order for tradingsymbol={tradingsymbol}, qty={qty}",True)
                 #     place_order(kiteuser,tradingsymbol=tradingsymbol,qty=qty, transaction_type=kite.TRANSACTION_TYPE_BUY, order_type=kite.ORDER_TYPE_MARKET)
                 #     kiteuser["partial_profit_booked_flg"]=1
-
-
-
-
-
-
-
+    else:
+        iLog(f"{strMsgSuffix} {pos['emsg']}",2)
 
 def get_pivot_points(instrument,strike_price):
     '''Calculates and returns the pivot points as dict for the given instrument'''
@@ -1038,8 +1042,6 @@ def get_pivot_points(instrument,strike_price):
         iLog(f"Unable to fetch pivor points for token {instrument.name}. Error : {ex}")
         return {}
 
-
-
 def strategy1(user):
     global strategy1_HHMM
     strategy1_HHMM = 0
@@ -1054,10 +1056,10 @@ def strategy1(user):
         3.1 Place order for the current option
     '''
     iLog("In strategy1(): ")
-    alice = user['broker_object'] 
+    alice_ord = user['broker_object'] 
     option_sell_type = user['option_sell_type']
 
-    pos = alice.get_netwise_positions() # Returns list of dicts if position is there else returns dict {'emsg': 'No Data', 'stat': 'Not_Ok'}
+    pos = alice_ord.get_netwise_positions() # Returns list of dicts if position is there else returns dict {'emsg': 'No Data', 'stat': 'Not_Ok'}
     if type(pos)==list:
         # Existing Positions present
         iLog("strategy1(): Existing Positions found! No Order will be placed.")
@@ -1066,7 +1068,7 @@ def strategy1(user):
     else:
         iLog("strategy1(): Existing Positions not found. Checking for existing Orders...")
         
-        orders = alice.get_order_history('')
+        orders = alice_ord.get_order_history('')
         if type(orders)==list:
             iLog("strategy1(): Existing Orders found! No Order will be placed.")
             pass
@@ -1079,18 +1081,14 @@ def strategy1(user):
                 print(dict_nifty_ce) 
                 place_option_orders_CEPE(user,False,dict_nifty_ce)
 
-
-
 def strategy2(user):
     # Do a strangle for price ~200 and keep SL of 70, add position to opposite leg when 50 SL is reached 
     global strategy2_HHMM
     strategy2_HHMM=0
 
     iLog("In strategy1(): ")
-    alice = user['broker_object']
-    
-    print(alice) 
-
+    # alice_ord = user['broker_object']
+    # print(alice_ord) 
 
 
 
@@ -1186,18 +1184,21 @@ for section in cfg.sections():
             user['loss_limit_perc'] = int(cfg.get(section, "loss_limit_perc"))
             user['profit_booking_qty_perc'] = int(cfg.get(section, "profit_booking_qty_perc"))
             user['virtual_trade'] = int(cfg.get(section, "virtual_trade"))
-
+           
 
             if auto_login_totp(user):
-                alice = Aliceblue(user_id=user['userid'], api_key=user['api_key'])
-                # session_id=alice.get_session_id()
+                alice_user = Aliceblue(user_id=user['userid'], api_key=user['api_key'])
+                session_id = alice_user.get_session_id()
                 iLog(f"Login Successful for user {user['userid']}")
-                user['broker_object'] = alice   # aliceblue, zerodha, kotak, icici, upstock etc
+                user['broker_object'] = alice_user   # aliceblue, zerodha, kotak, icici, upstock etc
                 user['broker'] = "aliceblue"
+                
                 users.append(user)
             else:
                 iLog(f"Autologin failed for {user['userid']}")
-
+            
+            
+            
 # Exit if user logins failed
 if len(users)==0:
     iLog(f"All user Logins failed !")
@@ -1210,12 +1211,13 @@ if len(users)==0:
 alice = users[0]['broker_object']
 
 
-# # Autologin
-# cfg.set("tokens","autologin_date",datetime.date.today().isoformat())
+
+
+# cfg.set("tokens","session_id",session_id)
 # with open(INI_FILE, 'w') as configfile:
 #     cfg.write(configfile)
 #     configfile.close()
-# print("Updated autologin_date to todays date",flush=True)
+print(f"Updated session_id at {datetime.datetime.now()}",flush=True)
 
 
 # Download contracts
@@ -1223,10 +1225,15 @@ alice.get_contract_master("INDICES")
 alice.get_contract_master("NSE")
 alice.get_contract_master("NFO")
 
+# For testing
+# alice.get_contract_master("MCX")
+
 
 # Get Nifty and BankNifty spot instrument object
 ins_nifty = alice.get_instrument_by_symbol('INDICES', 'NIFTY 50')
 ins_bank = alice.get_instrument_by_symbol('INDICES', 'NIFTY BANK')
+
+ins_nifty_fut = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=dt_next_exp.isoformat(), is_fut=True,strike=None, is_CE=False)
 
 # ins_crude = alice.get_instrument_by_symbol('MCX', 'CRUDEOIL22NOVFUT')
 
@@ -1238,7 +1245,7 @@ ins_bank = alice.get_instrument_by_symbol('INDICES', 'NIFTY BANK')
 iLog("Starting Websocket.",sendTeleMsg=True)
 
 alice.start_websocket(socket_open_callback=open_callback, socket_close_callback=close_callback,
-                      socket_error_callback=error_callback, subscription_callback=event_handler_quote_update, run_in_background=True)
+        socket_error_callback=error_callback, subscription_callback=event_handler_quote_update, run_in_background=True)
 
 
 # Check with Websocket open status
@@ -1251,7 +1258,17 @@ subscribe_list = [ins_nifty]
 # print("subscribe_list=",subscribe_list)
 
 alice.subscribe(subscribe_list)
-# print("subscried to nifty")
+print("subscribed to subscribe_list")
+
+
+
+# sucessfully tested order execution on multiple users below 1-July-2024
+# ins_goldm=alice.get_instrument_by_symbol('MCX','GOLDM')
+# place_order(users[0],ins_goldm,1,1.5)
+#place_order(users[1],ins_goldm,1,1.5)
+
+
+# sys.exit(0)
 
 # alice.subscribe(ins_crude, LiveFeedType.TICK_DATA)
 # print("subscried to crude")
@@ -1293,7 +1310,7 @@ sys.exit(0)
 ########################################################  
 # Process tick data/indicators and generate buy/sell and execute orders
 cur_HHMM = int(datetime.datetime.now().strftime("%H%M"))
-while cur_HHMM > 914 and cur_HHMM<1732:
+while cur_HHMM > 914 and cur_HHMM<2332: # 1732
     t1 = time.time()
     
     # 1. Get realtime config changes from .ini file and reload variables
@@ -1302,7 +1319,7 @@ while cur_HHMM > 914 and cur_HHMM<1732:
     
     # 2. Execute Strategy1
     if strategy1_HHMM==cur_HHMM and strategy1_executed==0:
-        iLog(f"Triggering Strategy1 (CE Sell) at {cur_HHMM}",True)
+        iLog(f"Triggering Strategy1 (CE Sell) at {cur_HHMM}",1,True)
         for user in users:
             strategy1(user)
         strategy1_executed=1
@@ -1313,7 +1330,7 @@ while cur_HHMM > 914 and cur_HHMM<1732:
     
     # 3. Execute Strategy2
     if strategy2_HHMM==cur_HHMM and strategy2_executed==0:
-        iLog(f"Triggering Strategy2 (Strangle) at {cur_HHMM}",True)
+        iLog(f"Triggering Strategy2 (Strangle) at {cur_HHMM}",1,True)
         for user in users:
             strategy2(user)
         strategy2_executed=1
@@ -1325,6 +1342,7 @@ while cur_HHMM > 914 and cur_HHMM<1732:
     
     # 4. Check position, MTM and square off positions if applicable 
     for user in users:
+        # MTM = check_MTM_Limit(user)   # Check the logic if any can be reused, or else discard
         check_positions(user)
 
 
@@ -1337,3 +1355,31 @@ while cur_HHMM > 914 and cur_HHMM<1732:
     # 6. Wait for the specified time interval before processing
     time.sleep(interval_seconds)   # Default 30 Seconds
     cur_HHMM = int(datetime.datetime.now().strftime("%H%M"))
+
+
+'''
+import os
+import time
+
+def is_file_not_modified(file_path, minutes=3):
+    try:
+        # Get the modified time of the file
+        modified_time = os.path.getmtime(file_path)
+        
+        # Calculate the time threshold (3 minutes ago)
+        threshold = time.time() - minutes * 60
+        
+        # Compare the modified time with the threshold
+        return modified_time < threshold
+    except FileNotFoundError:
+        return False
+
+# Specify the full file path
+file_path = r"path/to/your/file.txt"
+
+if is_file_not_modified(file_path):
+    print("The file has not been modified in the last 3 minutes.")
+else:
+    print("The file has been modified recently.")
+
+'''
