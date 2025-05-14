@@ -19,7 +19,7 @@
 # Time Frame        : 2 min
 # Entry Criteria    : Entry post 10.30 AM / Price Action = Sell CE; Price Action SELL PE
 # Exit Criteria     : Book 75% at 30 ponts gain/nearest Pivot Level-10pts (Whichever is earliest), rest based on Nearest Pivot Level - 10pts  
-# Risk Capacity     : Not applicable :-) . Always use next week expiry to be safe and if price goes above 150, switch to next expiry
+# Risk Capacity     : TBD. Always use next week expiry to be safe and if price goes above 150, switch to next expiry
 # Order Management  : Only target orders set; Manually manage -ve MTM (Use Mean reversion/Adjust to next strikes)
 
 # Supertrend Buy signal will trigger ATM CE buy
@@ -325,6 +325,8 @@ else:
 
 if str(expiry_date) in holiday_dates :
     expiry_date = expiry_date - datetime.timedelta(days=1)
+
+
 
 
 # Get last thursday of next month for getting Next month Nifty Future Contract  
@@ -645,27 +647,6 @@ def place_option_orders_CEPE(user,flgMeanReversion,dict_opt):
         else:
             iLog(f"[{user['userid']}] place_option_orders_CEPE(): flgMeanReversion=False, Unable to find pivots and place order for {ins_opt}")
 
-
-# def subscribe_ins():
-#     try:
-#         if trade_nifty : 
-#             alice.subscribe(ins_nifty, LiveFeedType.TICK_DATA)
-#             alice.subscribe(ins_nifty_ce, LiveFeedType.TICK_DATA)
-#             alice.subscribe(ins_nifty_pe, LiveFeedType.TICK_DATA)
-#             iLog(f"subscribed to {ins_nifty}, {ins_nifty_ce}, {ins_nifty_pe} ")
-
-#         if trade_banknifty : 
-#             alice.subscribe(ins_bank, LiveFeedType.TICK_DATA)
-#             alice.subscribe(ins_bank_ce, LiveFeedType.TICK_DATA)
-#             alice.subscribe(ins_bank_pe, LiveFeedType.TICK_DATA)
-#             iLog(f"subscribed to {ins_bank}, {ins_bank_ce}, {ins_bank_pe} ")
-
-#     except Exception as ex:
-#         iLog("subscribe_ins(): Exception="+ str(ex),3)
-
-#     iLog("subscribe_ins().")
-
-
 def close_all_orders(opt_index="ALL",buy_sell="ALL",ord_open_time=0):
     '''Cancel pending orders. opt_index=ALL/BANKN/NIFTY , buy_sell = ALL/BUY/SELL'''
     # print(datetime.datetime.now(),"In close_all_orders().",opt_index,flush=True)
@@ -843,7 +824,7 @@ def set_config_value(section,key,value):
         iLog("Exception writing to config. section={},key={},value={},ex={}".format(section,key,value,ex),2)
 
 def get_option_tokens(nifty_bank="ALL"):
-    '''This procedure sets the current option tokens to the latest ATM tokens
+    '''This procedure sets the current option tokens ins_nifty_ce, ins_nifty_pe to the latest ATM tokens
     nifty_bank="NIFTY" | "BANK" | "ALL"
     '''
 
@@ -867,8 +848,8 @@ def get_option_tokens(nifty_bank="ALL"):
             nifty_atm = round(int(nifty50),-2)
             iLog(f"nifty_atm={nifty_atm}")
 
-            strike_ce = float(nifty_atm - nifty_strike_ce_offset)   #ITM Options
-            strike_pe = float(nifty_atm + nifty_strike_pe_offset)
+            strike_ce = float(nifty_atm + nifty_strike_ce_offset)   #OTM Options
+            strike_pe = float(nifty_atm - nifty_strike_pe_offset)
 
             tmp_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=expiry_date.isoformat() , is_fut=False,strike=strike_ce, is_CE=True)
             tmp_pe = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=expiry_date.isoformat() , is_fut=False,strike=strike_pe, is_CE=False)
@@ -1079,7 +1060,16 @@ def strategy1(user):
             if option_sell_type=='CE' or option_sell_type=='BOTH':
                 print("dict_nifty_ce:=")
                 print(dict_nifty_ce) 
+                iLog("strategy1(): Placing CE orders...")
                 place_option_orders_CEPE(user,False,dict_nifty_ce)
+
+            if option_sell_type=='PE' or option_sell_type=='BOTH':
+                print("dict_nifty_pe:=")
+                print(dict_nifty_pe)
+                iLog("strategy1(): Placing PE orders...")
+                place_option_orders_CEPE(user,False,dict_nifty_pe)
+
+
 
 def strategy2(user):
     # Do a strangle for price ~200 and keep SL of 70, add position to opposite leg when 50 SL is reached 
@@ -1211,6 +1201,41 @@ if len(users)==0:
 alice = users[0]['broker_object']
 
 
+################################
+# Wait till start of the market
+################################
+print(float(datetime.datetime.now().strftime("%H%M%S.%f")[:-3]))
+while float(datetime.datetime.now().strftime("%H%M%S.%f")[:-3]) < 91459.900:
+    pass
+
+if int(datetime.datetime.now().strftime("%H%M")) < 916:
+    # -- Temp code to sell option at a particular strike at market opening at market price
+    # PUT
+    strike = 24400
+    qty = 75
+    is_CE = False   # if CE or PE
+    exp_dt = datetime.date(2025, 5, 15)
+    tmp_ins = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=exp_dt.isoformat() , is_fut=False,strike=strike, is_CE=is_CE)
+
+    iLog(f"tmp_ins={tmp_ins}, exp_dt={exp_dt}")
+
+    alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins,quantity = qty,order_type = OrderType.Market,
+        product_type = ProductType.Normal,price = 0.0,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False)
+
+    # CALL
+    strike = 24900
+    qty = 75
+    is_CE = True   # if CE or PE
+    tmp_ins = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=exp_dt.isoformat() , is_fut=False,strike=strike, is_CE=is_CE)
+
+    iLog(f"tmp_ins={tmp_ins}")
+
+    alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins,quantity = qty,order_type = OrderType.Market,
+        product_type = ProductType.Normal,price = 0.0,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False)
+
+
+# -- Temp code
+sys.exit(0)
 
 
 # cfg.set("tokens","session_id",session_id)
@@ -1303,7 +1328,7 @@ strategy2_executed=0
 # Test Area
 # get_realtime_config()
 # strategy1(user)
-sys.exit(0)
+# sys.exit(0)
 
 ########################################################
 ####            MAIN PROGRAM START HERE ...         ####
@@ -1355,31 +1380,3 @@ while cur_HHMM > 914 and cur_HHMM<2332: # 1732
     # 6. Wait for the specified time interval before processing
     time.sleep(interval_seconds)   # Default 30 Seconds
     cur_HHMM = int(datetime.datetime.now().strftime("%H%M"))
-
-
-'''
-import os
-import time
-
-def is_file_not_modified(file_path, minutes=3):
-    try:
-        # Get the modified time of the file
-        modified_time = os.path.getmtime(file_path)
-        
-        # Calculate the time threshold (3 minutes ago)
-        threshold = time.time() - minutes * 60
-        
-        # Compare the modified time with the threshold
-        return modified_time < threshold
-    except FileNotFoundError:
-        return False
-
-# Specify the full file path
-file_path = r"path/to/your/file.txt"
-
-if is_file_not_modified(file_path):
-    print("The file has not been modified in the last 3 minutes.")
-else:
-    print("The file has been modified recently.")
-
-'''
