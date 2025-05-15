@@ -939,9 +939,7 @@ def check_positions(user):
     pos = alice_ord.get_netwise_positions() # Returns list of dicts if position is there else returns dict {'emsg': 'No Data', 'stat': 'Not_Ok'}
     if type(pos)==list:
         df_pos = pd.DataFrame(pos)[['Symbol','Tsym','Netqty','MtoM']]
-        print("df_pos:=")
-        print(df_pos)
-
+        print(f"{strMsgSuffix}df_pos:=\n{df_pos}",flush=True)
         
         df_pos['mtm'] = df_pos.MtoM.str.replace(",","").astype(float)
         mtm = sum(df_pos['mtm'])
@@ -1027,6 +1025,7 @@ def strategy1(user):
     global strategy1_HHMM
     strategy1_HHMM = 0
     '''
+    order tag = ST1
     Pivot levels based CE sell strategy
     Put trades based on the option type and strike selection and its pivots (now only for NIFTY)
     1. Check positions
@@ -1058,14 +1057,12 @@ def strategy1(user):
             iLog("strategy1(): Existing Orders not found. New Orders will be placed...")
             get_option_tokens("NIFTY")
             if option_sell_type=='CE' or option_sell_type=='BOTH':
-                print("dict_nifty_ce:=")
-                print(dict_nifty_ce) 
+                print(f"dict_nifty_ce:=\n{dict_nifty_ce}",flush=True)
                 iLog("strategy1(): Placing CE orders...")
                 place_option_orders_CEPE(user,False,dict_nifty_ce)
 
             if option_sell_type=='PE' or option_sell_type=='BOTH':
-                print("dict_nifty_pe:=")
-                print(dict_nifty_pe)
+                print(f"dict_nifty_pe:=\n{dict_nifty_pe}",flush=True)
                 iLog("strategy1(): Placing PE orders...")
                 place_option_orders_CEPE(user,False,dict_nifty_pe)
 
@@ -1208,10 +1205,14 @@ print(float(datetime.datetime.now().strftime("%H%M%S.%f")[:-3]))
 while float(datetime.datetime.now().strftime("%H%M%S.%f")[:-3]) < 91459.900:
     pass
 
+
+########################################################
+# Code block to place orders at immediate market opening
+########################################################
 if int(datetime.datetime.now().strftime("%H%M")) < 916:
     # -- Temp code to sell option at a particular strike at market opening at market price
     # PUT
-    strike = 24400
+    strike = 24500
     qty = 75
     is_CE = False   # if CE or PE
     exp_dt = datetime.date(2025, 5, 15)
@@ -1223,7 +1224,7 @@ if int(datetime.datetime.now().strftime("%H%M")) < 916:
         product_type = ProductType.Normal,price = 0.0,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False)
 
     # CALL
-    strike = 24900
+    strike = 25000
     qty = 75
     is_CE = True   # if CE or PE
     tmp_ins = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=exp_dt.isoformat() , is_fut=False,strike=strike, is_CE=is_CE)
@@ -1235,7 +1236,7 @@ if int(datetime.datetime.now().strftime("%H%M")) < 916:
 
 
 # -- Temp code
-sys.exit(0)
+# sys.exit(0)
 
 
 # cfg.set("tokens","session_id",session_id)
@@ -1344,7 +1345,7 @@ while cur_HHMM > 914 and cur_HHMM<2332: # 1732
     
     # 2. Execute Strategy1
     if strategy1_HHMM==cur_HHMM and strategy1_executed==0:
-        iLog(f"Triggering Strategy1 (CE Sell) at {cur_HHMM}",1,True)
+        iLog(f"Triggering Strategy1 (CE and PE Sell) at {cur_HHMM}",1,True)
         for user in users:
             strategy1(user)
         strategy1_executed=1
