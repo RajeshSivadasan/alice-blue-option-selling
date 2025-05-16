@@ -538,13 +538,13 @@ def place_order(user, ins_scrip, qty, limit_price=0.0, buy_sell = TransactionTyp
 
     return ord_obj
 
-def place_option_orders_CEPE(user,flgMeanReversion,dict_opt):
+def place_option_orders_pivot(user,flgMeanReversion,dict_opt):
     '''
     Called from place_option_orders(). All arguments are mandatory.
     This procedure is used for putting regular or mean reversion (position sizing) orders based on pivot levels 
     '''
-    # iLog(f"[{user['userid']}] place_option_orders_CEPE(): flgMeanReversion = {flgMeanReversion} dict_opt = {dict_opt}")
-    iLog(f"[{user['userid']}] place_option_orders_CEPE(): flgMeanReversion={flgMeanReversion}")    
+    # iLog(f"[{user['userid']}] place_option_orders_pivot(): flgMeanReversion = {flgMeanReversion} dict_opt = {dict_opt}")
+    iLog(f"[{user['userid']}] place_option_orders_pivot(): flgMeanReversion={flgMeanReversion}")    
 
     last_price = dict_opt["last_price"]
     ins_opt = dict_opt["instrument"]
@@ -602,7 +602,7 @@ def place_option_orders_CEPE(user,flgMeanReversion,dict_opt):
             if 5 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[5],float(dict_opt["r4"]) + 4*( float(dict_opt["r4"]) - float(dict_opt["r3"]) ) )
 
         else:
-            iLog(f"[{user['userid']}] place_option_orders_CEPE(): flgMeanReversion=True, Unable to find pivots and place order for {ins_opt}")
+            iLog(f"[{user['userid']}] place_option_orders_pivot(): flgMeanReversion=True, Unable to find pivots and place order for {ins_opt}")
 
     else:
         # Regular orders for fresh positions or new position for next strike for mean reversion
@@ -645,7 +645,119 @@ def place_option_orders_CEPE(user,flgMeanReversion,dict_opt):
             if 1 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[1],float(dict_opt["r4"]))
 
         else:
-            iLog(f"[{user['userid']}] place_option_orders_CEPE(): flgMeanReversion=False, Unable to find pivots and place order for {ins_opt}")
+            iLog(f"[{user['userid']}] place_option_orders_pivot(): flgMeanReversion=False, Unable to find pivots and place order for {ins_opt}")
+
+
+def place_option_orders_fixed(user,flgMeanReversion,dict_opt):
+    '''
+    Called from place_option_orders(). All arguments are mandatory.
+    This procedure is used for putting regular or mean reversion (position sizing) orders based on pivot levels 
+    '''
+    # iLog(f"[{user['userid']}] place_option_orders_pivot(): flgMeanReversion = {flgMeanReversion} dict_opt = {dict_opt}")
+    iLog(f"[{user['userid']}] place_option_orders_fixed(): flgMeanReversion={flgMeanReversion}")    
+
+    last_price = dict_opt["last_price"]
+    ins_opt = dict_opt["instrument"]
+    qty = user['nifty_opt_base_lot'] * nifty_opt_per_lot_qty
+
+
+    # level 0 = immediate resistance level, level 1 = Next resistance level and so on  
+    if flgMeanReversion :
+        #Put orders for mean reversion for existing positions while addding new positions 
+        # rng = (dict_nifty_ce["r2"] - dict_nifty_ce["r1"])/2
+        if dict_opt["s2"] <= last_price < dict_opt["s1"] :
+            # S/R to Level Mapping: s1=0, pp=1, r1=2, r2=3, r3=4, r4=5
+            # place_order(user,ins_opt,qty,float(dict_opt["s1"]))
+            
+            if 1 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[1],float(dict_opt["pp"]))
+            if 2 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[2],float(dict_opt["r1"]))
+            if 3 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[3],float(dict_opt["r2"]))
+            if 4 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[4],float(dict_opt["r3"]))
+            if 5 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[5],float(dict_opt["r4"]))
+
+        elif dict_opt["s1"] <= last_price < dict_opt["pp"] :
+            # S/R to Level Mapping: pp=0, r1=1, r2=2, r3=3, r4=4
+            # place_order(user,ins_opt,qty,float(dict_opt["pp"]))
+            if 1 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[1],float(dict_opt["r1"]))
+            if 2 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[2],float(dict_opt["r2"]))
+            if 3 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[3],float(dict_opt["r3"]))
+            if 4 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[4],float(dict_opt["r4"]))
+            if 5 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[5],float(dict_opt["r4"]) + ( float(dict_opt["r4"]) - float(dict_opt["r3"]) ) )
+
+        elif dict_opt["pp"] <= last_price < dict_opt["r1"] :
+            # S/R to Level Mapping: r1=0, r2=1, r3=2, r4=3
+            # place_order(user,ins_opt,qty,float(dict_opt["r1"]))
+            if 1 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[1],float(dict_opt["r2"]))
+            if 2 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[2],float(dict_opt["r3"]))
+            if 3 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[3],float(dict_opt["r4"]))
+            if 4 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[4],float(dict_opt["r4"]) + ( float(dict_opt["r4"]) - float(dict_opt["r3"]) ) )
+            if 5 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[5],float(dict_opt["r4"]) + 2*( float(dict_opt["r4"]) - float(dict_opt["r3"]) ) )
+
+        elif dict_opt["r1"] <= last_price < dict_opt["r2"] :
+            # S/R to Level Mapping: r2=0, r3=1, r4=2
+            # place_order(user,ins_opt,qty,float(dict_opt["r2"]))
+            if 1 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[1],float(dict_opt["r3"]))
+            if 2 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[2],float(dict_opt["r4"]))
+            if 3 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[3],float(dict_opt["r4"]) + ( float(dict_opt["r4"]) - float(dict_opt["r3"]) ) )
+            if 4 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[4],float(dict_opt["r4"]) + 2*( float(dict_opt["r4"]) - float(dict_opt["r3"]) ) )
+            if 5 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[5],float(dict_opt["r4"]) + 3*( float(dict_opt["r4"]) - float(dict_opt["r3"]) ) )
+
+        elif dict_opt["r2"] <= last_price < dict_opt["r3"] :
+            # S/R to Level Mapping: r3=0, r4=1
+            # place_order(user,ins_opt,qty,float(dict_opt["r3"]))
+            if 1 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[1],float(dict_opt["r4"]))
+            if 2 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[2],float(dict_opt["r4"]) + ( float(dict_opt["r4"]) - float(dict_opt["r3"]) ) )
+            if 3 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[3],float(dict_opt["r4"]) + 2*( float(dict_opt["r4"]) - float(dict_opt["r3"]) ) )
+            if 4 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[4],float(dict_opt["r4"]) + 3*( float(dict_opt["r4"]) - float(dict_opt["r3"]) ) )
+            if 5 in lst_ord_lvl_mr: place_order(user,ins_opt,qty*lst_qty_multiplier_mr[5],float(dict_opt["r4"]) + 4*( float(dict_opt["r4"]) - float(dict_opt["r3"]) ) )
+
+        else:
+            iLog(f"[{user['userid']}] place_option_orders_pivot(): flgMeanReversion=True, Unable to find pivots and place order for {ins_opt}")
+
+    else:
+        # Regular orders for fresh positions or new position for next strike for mean reversion
+        if dict_opt["s3"] <= last_price < dict_opt["s2"] : 
+            if 0 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[0],float(dict_opt["s2"]))
+            if 1 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[1],float(dict_opt["s1"]))
+            if 2 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[2],float(dict_opt["pp"]))
+            if 3 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[3],float(dict_opt["r1"]))
+            if 4 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[4],float(dict_opt["r2"]))
+            if 5 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[5],float(dict_opt["r3"]))
+        
+        if dict_opt["s2"] <= last_price < dict_opt["s1"] :
+            if 0 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[0],float(dict_opt["s1"]))
+            if 1 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[1],float(dict_opt["pp"]))
+            if 2 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[2],float(dict_opt["r1"]))
+            if 3 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[3],float(dict_opt["r2"]))
+            if 4 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[4],float(dict_opt["r3"]))
+            if 5 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[5],float(dict_opt["r4"]))
+
+        elif dict_opt["s1"] <= last_price < dict_opt["pp"] :
+            if 0 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[0],float(dict_opt["pp"]))
+            if 1 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[1],float(dict_opt["r1"]))
+            if 2 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[2],float(dict_opt["r2"]))
+            if 3 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[3],float(dict_opt["r3"]))
+            if 4 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[4],float(dict_opt["r4"]))
+
+        elif dict_opt["pp"] <= last_price < dict_opt["r1"] :
+            if 0 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[0],float(dict_opt["r1"]))
+            if 1 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[1],float(dict_opt["r2"]))
+            if 2 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[2],float(dict_opt["r3"]))
+            if 3 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[3],float(dict_opt["r4"]))
+
+        elif dict_opt["r1"] <= last_price < dict_opt["r2"] :
+            if 0 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[0],float(dict_opt["r2"]))
+            if 1 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[1],float(dict_opt["r3"]))
+            if 2 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[2],float(dict_opt["r4"]))
+
+        elif dict_opt["r2"] <= last_price < dict_opt["r3"] :
+            if 0 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[0],float(dict_opt["r3"]))
+            if 1 in lst_ord_lvl_reg: place_order(user,ins_opt,qty*lst_qty_multiplier_reg[1],float(dict_opt["r4"]))
+
+        else:
+            iLog(f"[{user['userid']}] place_option_orders_fixed(): flgMeanReversion=False, Unable to find pivots and place order for {ins_opt}")
+
+
 
 def close_all_orders(opt_index="ALL",buy_sell="ALL",ord_open_time=0):
     '''Cancel pending orders. opt_index=ALL/BANKN/NIFTY , buy_sell = ALL/BUY/SELL'''
@@ -1021,7 +1133,7 @@ def get_pivot_points(instrument,strike_price):
         iLog(f"Unable to fetch pivor points for token {instrument.name}. Error : {ex}")
         return {}
 
-def strategy1(user):
+def strategy1_old(user):
     global strategy1_HHMM
     strategy1_HHMM = 0
     '''
@@ -1059,12 +1171,57 @@ def strategy1(user):
             if option_sell_type=='CE' or option_sell_type=='BOTH':
                 print(f"dict_nifty_ce:=\n{dict_nifty_ce}",flush=True)
                 iLog("strategy1(): Placing CE orders...")
-                place_option_orders_CEPE(user,False,dict_nifty_ce)
+                place_option_orders_pivot(user,False,dict_nifty_ce)
 
             if option_sell_type=='PE' or option_sell_type=='BOTH':
                 print(f"dict_nifty_pe:=\n{dict_nifty_pe}",flush=True)
                 iLog("strategy1(): Placing PE orders...")
-                place_option_orders_CEPE(user,False,dict_nifty_pe)
+                place_option_orders_pivot(user,False,dict_nifty_pe)
+
+def strategy1(user):
+    global strategy1_HHMM
+    strategy1_HHMM = 0
+    '''
+    order tag = ST1
+    Peg levels based CE sell strategy ( MO for <20 30,60,90,120,150,180)
+    Put trades based on the option type and strike selection and above price levels (now only for NIFTY)
+    1. Check positions
+    2. If position already exists
+        2.1 Check if orders exists for those position , if yes do nothing
+        2.2 Else get pivot points for this position symbol and place orders
+    3. If position does not exist
+        3.1 Place order for the current option
+    '''
+    iLog("In strategy1(): ")
+    alice_ord = user['broker_object'] 
+    option_sell_type = user['option_sell_type']
+
+    pos = alice_ord.get_netwise_positions() # Returns list of dicts if position is there else returns dict {'emsg': 'No Data', 'stat': 'Not_Ok'}
+    if type(pos)==list:
+        # Existing Positions present
+        iLog("strategy1(): Existing Positions found! No Order will be placed.")
+        pass
+    
+    else:
+        iLog("strategy1(): Existing Positions not found. Checking for existing Orders...")
+        
+        orders = alice_ord.get_order_history('')
+        if type(orders)==list:
+            iLog("strategy1(): Existing Orders found! No Order will be placed.")
+            pass
+        
+        else:
+            iLog("strategy1(): Existing Orders not found. New Orders will be placed...")
+            get_option_tokens("NIFTY")
+            if option_sell_type=='CE' or option_sell_type=='BOTH':
+                print(f"dict_nifty_ce:=\n{dict_nifty_ce}",flush=True)
+                iLog("strategy1(): Placing CE orders...")
+                place_option_orders_pivot(user,False,dict_nifty_ce)
+
+            if option_sell_type=='PE' or option_sell_type=='BOTH':
+                print(f"dict_nifty_pe:=\n{dict_nifty_pe}",flush=True)
+                iLog("strategy1(): Placing PE orders...")
+                place_option_orders_pivot(user,False,dict_nifty_pe)
 
 
 
