@@ -314,17 +314,23 @@ dict_nifty_pe = {}
 dict_nifty_opt_selected = {} # for storing the details of existing older option position which needs reversion
 
 
+
+
 # Get current/next week expiry 
 # ----------------------------
+# Standard current expiry date
+cur_expiry_date = datetime.date.today() + datetime.timedelta( ((3-datetime.date.today().weekday()) % 7))
+
 # if today is tue or wed then use next expiry else use current expiry. .isoweekday() 1 = Monday, 2 = Tuesday
 dow = datetime.date.today().isoweekday()    # Also used in placing orders 
 if dow  in (next_week_expiry_days):  # next_week_expiry_days = 2,3,4 
     expiry_date = datetime.date.today() + datetime.timedelta( ((3-datetime.date.today().weekday()) % 7)+7 )
 else:
-    expiry_date = datetime.date.today() + datetime.timedelta( ((3-datetime.date.today().weekday()) % 7))
+    expiry_date = cur_expiry_date
 
 if str(expiry_date) in holiday_dates :
     expiry_date = expiry_date - datetime.timedelta(days=1)
+    cur_expiry_date = cur_expiry_date - datetime.timedelta(days=1)
 
 
 
@@ -1530,6 +1536,33 @@ if len(users)==0:
 alice = users[0]['broker_object']
 
 
+
+# Download contracts
+alice.get_contract_master("INDICES")
+alice.get_contract_master("NSE")
+alice.get_contract_master("NFO")
+
+
+# Get Nifty and BankNifty spot instrument object
+ins_nifty = alice.get_instrument_by_symbol('INDICES', 'NIFTY 50')
+ins_bank = alice.get_instrument_by_symbol('INDICES', 'NIFTY BANK')
+
+ins_nifty_fut = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=dt_next_exp.isoformat(), is_fut=True,strike=None, is_CE=False)
+
+
+# Get nifty previous close and current price
+nifty_info = alice.get_scrip_info(ins_nifty)
+
+
+nifty_atm = round(int(nifty_info['LTP']),-2)
+iLog(f"nifty_atm={nifty_atm}")
+
+# strike_ce = float(nifty_atm + nifty_strike_ce_offset)   #OTM Options
+# strike_pe = float(nifty_atm - nifty_strike_pe_offset)
+
+
+# -- Start - Temp code to sell option at a particular strike at market opening at market price
+
 ################################
 # Wait till start of the market
 ################################
@@ -1538,42 +1571,55 @@ while float(datetime.datetime.now().strftime("%H%M%S.%f")[:-3]) < 91459.900:
     pass
 
 
-flg_PE_CE_BOTH = "CE"
+flg_PE_CE_BOTH = "BOTH"
 ########################################################
 # Code block to place orders at immediate market opening
 ########################################################
 if int(datetime.datetime.now().strftime("%H%M")) < 916:
-    exp_dt = datetime.date(2025, 5, 22)
+    exp_dt = cur_expiry_date    # datetime.date(2025, 5, 22)
+    
+    # === CALL
+    if flg_PE_CE_BOTH=="CE" or flg_PE_CE_BOTH=="BOTH":
+        strike = nifty_atm  # 24900
+        qty = 75
+        is_CE = True   # if CE or PE
+        tmp_ins_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=exp_dt.isoformat() , is_fut=False,strike=strike, is_CE=is_CE)
 
-    # -- Temp code to sell option at a particular strike at market opening at market price
-    # PUT
+        iLog(f"tmp_ins_pe={tmp_ins_ce}")
+
+        alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_ce,quantity = qty,order_type = OrderType.Market,
+            product_type = ProductType.Normal,price = 0.0,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_CE")
+
+    # === PUT
     if flg_PE_CE_BOTH=="PE" or flg_PE_CE_BOTH=="BOTH":
-        strike = 24500
+        strike = nifty_atm  # 24500
         qty = 75
         is_CE = False   # if CE or PE
     
-        tmp_ins = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=exp_dt.isoformat() , is_fut=False,strike=strike, is_CE=is_CE)
+        tmp_ins_pe = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=exp_dt.isoformat() , is_fut=False,strike=strike, is_CE=is_CE)
 
-        iLog(f"tmp_ins={tmp_ins}, exp_dt={exp_dt}")
+        iLog(f"tmp_ins_ce={tmp_ins_pe}, exp_dt={exp_dt}")
 
-        alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins,quantity = qty,order_type = OrderType.Market,
-            product_type = ProductType.Normal,price = 0.0,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False)
+        alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_pe,quantity = qty,order_type = OrderType.Market,
+            product_type = ProductType.Normal,price = 0.0,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False, order_tag="GM_PE")
 
 
-    # CALL
-    if flg_PE_CE_BOTH=="CE" or flg_PE_CE_BOTH=="BOTH":
-        strike = 24900
-        qty = 150
-        is_CE = True   # if CE or PE
-        tmp_ins = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=exp_dt.isoformat() , is_fut=False,strike=strike, is_CE=is_CE)
+# Sleep for 10 seconds and then pick the high value of each instrument and add 30 to it and place a second limit order to CE/PE  
+time.sleep(10) 
+if flg_PE_CE_BOTH=="CE" or flg_PE_CE_BOTH=="BOTH":
+    ce_price = float(alice.get_scrip_info(tmp_ins_ce)['LTP'] + 30)
+    alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_ce,quantity = qty,order_type = OrderType.Limit,
+        product_type = ProductType.Normal,price = ce_price,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_CE")
 
-        iLog(f"tmp_ins={tmp_ins}")
+if flg_PE_CE_BOTH=="PE" or flg_PE_CE_BOTH=="BOTH":
+    pe_price = float(alice.get_scrip_info(tmp_ins_pe)['LTP'] + 30)
+    alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_pe,quantity = qty,order_type = OrderType.Limit,
+        product_type = ProductType.Normal,price = pe_price,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_PE")
 
-        alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins,quantity = qty,order_type = OrderType.Market,
-            product_type = ProductType.Normal,price = 0.0,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False)
 
 # alice.get_script_info("NFO", "NIFTY", expiry_date=exp_dt.isoformat(), is_fut=False, strike=strike, is_CE=is_CE)
-# -- Temp code
+# -- End - Temp code to sell option at a particular strike at market opening at market price
+
 print("sys.exit(0)")
 sys.exit(0)
 
@@ -1585,20 +1631,8 @@ sys.exit(0)
 print(f"Updated session_id at {datetime.datetime.now()}",flush=True)
 
 
-# Download contracts
-alice.get_contract_master("INDICES")
-alice.get_contract_master("NSE")
-alice.get_contract_master("NFO")
 
-# For testing
-# alice.get_contract_master("MCX")
-
-
-# Get Nifty and BankNifty spot instrument object
-ins_nifty = alice.get_instrument_by_symbol('INDICES', 'NIFTY 50')
-ins_bank = alice.get_instrument_by_symbol('INDICES', 'NIFTY BANK')
-
-ins_nifty_fut = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=dt_next_exp.isoformat(), is_fut=True,strike=None, is_CE=False)
+sys.exit(0)
 
 # ins_crude = alice.get_instrument_by_symbol('MCX', 'CRUDEOIL22NOVFUT')
 
