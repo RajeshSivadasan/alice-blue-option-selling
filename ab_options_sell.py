@@ -321,7 +321,7 @@ dict_nifty_opt_selected = {} # for storing the details of existing older option 
 # Standard current expiry date
 cur_expiry_date = datetime.date.today() + datetime.timedelta( ((3-datetime.date.today().weekday()) % 7))
 
-# if today is tue or wed then use next expiry else use current expiry. .isoweekday() 1 = Monday, 2 = Tuesday
+# if today is tue or wed then use next expiry else use current expiry. .isoweekday() 1=Mon,2=Tue,3=Wed, 4=Thu, 5=Fri
 dow = datetime.date.today().isoweekday()    # Also used in placing orders 
 if dow  in (next_week_expiry_days):  # next_week_expiry_days = 2,3,4 
     expiry_date = datetime.date.today() + datetime.timedelta( ((3-datetime.date.today().weekday()) % 7)+7 )
@@ -1339,6 +1339,14 @@ def strategy1(user):
         3.1 call place_option_orders_fixed() to place fixed orders for CE & PE
     '''
     iLog("In strategy1(): ")
+
+    if dow in (3, 4):
+        pass
+    else:
+        iLog("strategy1(): Strategy execution is not allowed on this day. Exiting...")
+        return
+
+
     alice_ord = user['broker_object'] 
     option_sell_type = user['option_sell_type']
 
