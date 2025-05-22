@@ -1119,7 +1119,7 @@ def get_option_tokens_fixed(nifty_bank="ALL"):
     nifty_bank="NIFTY" | "BANK" | "ALL"
     '''
 
-    iLog(f"In get_option_tokens():{nifty_bank}")
+    iLog(f"In get_option_tokens_fixed():{nifty_bank}")
 
     #WIP
     global token_nifty_ce_fixed, token_nifty_pe_fixed, ins_nifty_ce_fixed, ins_nifty_pe_fixed, \
@@ -1129,7 +1129,8 @@ def get_option_tokens_fixed(nifty_bank="ALL"):
     # print("expiry_date=",expiry_date,flush=True)
     # print("weekly_expiry_holiday_dates=",weekly_expiry_holiday_dates,flush=True)
 
-
+    strike_step = 50
+ 
     if nifty_bank=="NIFTY" or nifty_bank=="ALL":
         if len(lst_nifty_ltp)>0:
           
@@ -1138,6 +1139,43 @@ def get_option_tokens_fixed(nifty_bank="ALL"):
 
             nifty_atm = round(int(nifty50),-2)
             iLog(f"nifty_atm={nifty_atm}")
+
+
+            # --- Generate strikes ---
+            strikes = [nifty_atm + strike_step * i for i in range(-10, 11)]
+
+            # --- Collect LTPs for each strike, both CE and PE ---
+            ce_candidates = []
+            pe_candidates = []
+
+            for strike in strikes:
+                # CE
+                ce_row = nifty_opts[
+                    (nifty_opts['Strike Price'] == strike) &
+                    (nifty_opts['Option Type'] == "CE") &
+                    (nifty_opts['Expiry Date'] == nearest_expiry)
+                ]
+                if not ce_row.empty:
+                    ce_symbol = ce_row.iloc[0]['Trading Symbol']
+                    ce_inst = alice.get_instrument_by_symbol("NFO", ce_symbol)
+                    ce_quote = alice.get_scrip_info(ce_inst)
+                    ce_ltp = float(ce_quote['LTP'])
+                    ce_candidates.append({'strike': strike, 'ltp': ce_ltp, 'symbol': ce_symbol})
+
+                # PE
+                pe_row = nifty_opts[
+                    (nifty_opts['Strike Price'] == strike) &
+                    (nifty_opts['Option Type'] == "PE") &
+                    (nifty_opts['Expiry Date'] == nearest_expiry)
+                ]
+                if not pe_row.empty:
+                    pe_symbol = pe_row.iloc[0]['Trading Symbol']
+                    pe_inst = alice.get_instrument_by_symbol("NFO", pe_symbol)
+                    pe_quote = alice.get_scrip_info(pe_inst)
+                    pe_ltp = float(pe_quote['LTP'])
+                    pe_candidates.append({'strike': strike, 'ltp': pe_ltp, 'symbol': pe_symbol})
+
+
 
             strike_ce = float(nifty_atm + nifty_strike_ce_offset)   #OTM Options
             strike_pe = float(nifty_atm - nifty_strike_pe_offset)
@@ -1554,7 +1592,7 @@ ins_nifty_fut = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_d
 nifty_info = alice.get_scrip_info(ins_nifty)
 
 
-nifty_atm = round(int(nifty_info['LTP']),-2)
+nifty_atm = round(int(float(nifty_info['LTP'])),-2)
 iLog(f"nifty_atm={nifty_atm}")
 
 # strike_ce = float(nifty_atm + nifty_strike_ce_offset)   #OTM Options
