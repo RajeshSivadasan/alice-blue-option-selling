@@ -333,7 +333,8 @@ if str(expiry_date) in holiday_dates :
     cur_expiry_date = cur_expiry_date - datetime.timedelta(days=1)
 
 
-
+# For testing only, To be removed
+# cur_expiry_date = expiry_date    
 
 # Get last thursday of next month for getting Next month Nifty Future Contract  
 dt_next_exp = ((datetime.date.today()+ relativedelta(months=1)) + relativedelta(day=31, weekday=TH(-1)))
@@ -355,7 +356,6 @@ nifty_avg_margin_req_per_lot =  int(cfg.get("info", "nifty_avg_margin_req_per_lo
 # nifty_opt_base_lot = int(cfg.get("info", "nifty_opt_base_lot"))
 
 iLog(f"expiry_date = {expiry_date} dow={dow} lst_ord_lvl_reg={lst_ord_lvl_reg} lst_ord_lvl_mr={lst_ord_lvl_mr}")
-
 
 
 
@@ -506,10 +506,10 @@ def get_realtime_config():
 
 def place_order(user, ins_scrip, qty, limit_price=0.0, buy_sell = TransactionType.Sell, order_type = OrderType.Limit, order_tag = "ab_options_sell"):
     '''
-    Used for placing orders. Default is buy market orders for squareoff short positions 
+    Used for placing orders for a particular user. Default is sell limit order 
     buy_sell = TransactionType.Buy/TransactionType.Sell
     order_type = Default is limit order
-    limit_price = limit price in case SL order needs to be placed 
+    limit_price = limit price; Set limit price to 0.0 for market order
     '''
     # global alice
     alice_ord = user['broker_object'] 
@@ -763,7 +763,7 @@ def place_option_orders_fixed_tmp(user,flgMeanReversion,dict_opt):
         else:
             iLog(f"[{user['userid']}] place_option_orders_fixed(): flgMeanReversion=False, Unable to find pivots and place order for {ins_opt}")
 
-def get_option_tokens_fixed(nifty_bank="ALL"):
+def get_option_tokens_fixed_old(nifty_bank="ALL"):
     '''
     Sets the option tokens for CE and PE with the maximum strike price where LTP < 20.
     nifty_bank="NIFTY" | "BANK" | "ALL"
@@ -1114,147 +1114,74 @@ def get_option_tokens(nifty_bank="ALL"):
     if nifty_bank=="BANK" or nifty_bank=="ALL":
         iLog(f"ltp_bank_ATM_CE={ltp_bank_ATM_CE}, ltp_bank_ATM_PE={ltp_bank_ATM_PE}")  
 
-def get_option_tokens_fixed(nifty_bank="ALL"):
-    '''This procedure sets the current option tokens ins_nifty_ce, ins_nifty_pe to the latest ATM tokens
-    nifty_bank="NIFTY" | "BANK" | "ALL"
+def place_option_orders_fixed(user):
+    '''This procedure gets CE and PE instrumets where max LTP is <=20 and places Market orders and Limit orders at 30,60,90,120
+    for both CE and PE.
+    It is called from the main loop and not from the strategy1 code.
     '''
 
-    iLog(f"In get_option_tokens_fixed():{nifty_bank}")
+    iLog(f"[{user['userid']}] place_option_orders_fixed():")
 
-    #WIP
-    global token_nifty_ce_fixed, token_nifty_pe_fixed, ins_nifty_ce_fixed, ins_nifty_pe_fixed, \
-        token_bank_ce_fixed, token_bank_pe_fixed, ins_bank_ce_fixed, ins_bank_pe_fixed,\
-        dict_nifty_ce, dict_nifty_pe
-
-    # print("expiry_date=",expiry_date,flush=True)
-    # print("weekly_expiry_holiday_dates=",weekly_expiry_holiday_dates,flush=True)
-
-    strike_step = 50
- 
-    if nifty_bank=="NIFTY" or nifty_bank=="ALL":
-        if len(lst_nifty_ltp)>0:
-          
-            nifty50 = lst_nifty_ltp[-1]
-            # print("nifty50=",nifty50,flush=True)
-
-            nifty_atm = round(int(nifty50),-2)
-            iLog(f"nifty_atm={nifty_atm}")
-
-
-            # --- Generate strikes ---
-            strikes = [nifty_atm + strike_step * i for i in range(-10, 11)]
-
-            # --- Collect LTPs for each strike, both CE and PE ---
-            ce_candidates = []
-            pe_candidates = []
-
-            for strike in strikes:
-                # CE
-                ce_row = nifty_opts[
-                    (nifty_opts['Strike Price'] == strike) &
-                    (nifty_opts['Option Type'] == "CE") &
-                    (nifty_opts['Expiry Date'] == nearest_expiry)
-                ]
-                if not ce_row.empty:
-                    ce_symbol = ce_row.iloc[0]['Trading Symbol']
-                    ce_inst = alice.get_instrument_by_symbol("NFO", ce_symbol)
-                    ce_quote = alice.get_scrip_info(ce_inst)
-                    ce_ltp = float(ce_quote['LTP'])
-                    ce_candidates.append({'strike': strike, 'ltp': ce_ltp, 'symbol': ce_symbol})
-
-                # PE
-                pe_row = nifty_opts[
-                    (nifty_opts['Strike Price'] == strike) &
-                    (nifty_opts['Option Type'] == "PE") &
-                    (nifty_opts['Expiry Date'] == nearest_expiry)
-                ]
-                if not pe_row.empty:
-                    pe_symbol = pe_row.iloc[0]['Trading Symbol']
-                    pe_inst = alice.get_instrument_by_symbol("NFO", pe_symbol)
-                    pe_quote = alice.get_scrip_info(pe_inst)
-                    pe_ltp = float(pe_quote['LTP'])
-                    pe_candidates.append({'strike': strike, 'ltp': pe_ltp, 'symbol': pe_symbol})
-
-
-
-            strike_ce = float(nifty_atm + nifty_strike_ce_offset)   #OTM Options
-            strike_pe = float(nifty_atm - nifty_strike_pe_offset)
-
-            tmp_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=expiry_date.isoformat() , is_fut=False,strike=strike_ce, is_CE=True)
-            tmp_pe = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=expiry_date.isoformat() , is_fut=False,strike=strike_pe, is_CE=False)
-
-            # Reuse if current and new ce/pe is same 
-            if ins_nifty_ce!=tmp_ce:
-            
-                ins_nifty_ce = tmp_ce
-                ins_nifty_pe = tmp_pe
-
-                alice.subscribe([ins_nifty_ce,ins_nifty_pe])
-
-
-                iLog(f"ins_nifty_ce={ins_nifty_ce}, ins_nifty_pe={ins_nifty_pe}")
-
-                token_nifty_ce = ins_nifty_ce[1]
-                token_nifty_pe = ins_nifty_pe[1]
-
-                # print("token_nifty_ce=",token_nifty_ce,flush=True)
-                # print("token_nifty_pe=",token_nifty_pe,flush=True)
-
-                # Calculate pivot points for nitfy option CE and PE
-                dict_nifty_ce = get_pivot_points(ins_nifty_ce,strike_ce)
-                dict_nifty_pe = get_pivot_points(ins_nifty_pe,strike_pe)
-
-        else:
-            iLog(f"len(lst_nifty_ltp)={len(lst_nifty_ltp)}")
-
-    if nifty_bank=="BANK" or nifty_bank=="ALL":
-        if len(lst_bank_ltp)>0:
-            bank50 = int(lst_bank_ltp[-1])
-            # print("Bank50=",bank50,flush=True)
-
-            bank_atm = round(int(bank50),-2)
-            iLog(f"bank_atm={bank_atm}")
-
-            strike_ce = float(bank_atm - bank_strike_ce_offset) #ITM Options
-            strike_pe = float(bank_atm + bank_strike_pe_offset)
-
-            ins_bank_ce = alice.get_instrument_for_fno(symbol = 'BANKNIFTY', expiry_date=expiry_date, is_fut=False, strike=strike_ce, is_CE = True)
-            ins_bank_pe = alice.get_instrument_for_fno(symbol = 'BANKNIFTY', expiry_date=expiry_date, is_fut=False, strike=strike_pe, is_CE = False)
-
-            alice.subscribe(ins_bank_ce, LiveFeedType.COMPACT)
-            alice.subscribe(ins_bank_pe, LiveFeedType.COMPACT)
-            
-            iLog(f"ins_bank_ce={ins_bank_ce}, ins_bank_pe={ins_bank_pe}")
-
-            token_bank_ce = int(ins_bank_ce[1])
-            token_bank_pe = int(ins_bank_pe[1])
-
-            # print("token_bank_ce=",token_bank_ce,flush=True)
-            # print("token_bank_pe=",token_bank_pe,flush=True)
-            
-            # Calculate pivot points for nitfy option CE and PE
-            # dict_nifty_ce = get_pivot_points(ins_nifty_ce,strike_ce)
-            # dict_nifty_pe = get_pivot_points(ins_nifty_pe,strike_pe)
-
-        else:
-            iLog(f"len(lst_bank_ltp)={len(lst_bank_ltp)}")
-
-    time.sleep(2)
     
-    if nifty_bank=="NIFTY" or nifty_bank=="ALL":
-        iLog(f"ltp_nifty_ATM_CE={ltp_nifty_ATM_CE}, ltp_nifty_ATM_PE={ltp_nifty_ATM_PE}")
+    strike_step = 50
+    # lst_nifty_ltp.append(24609.70)
+    if len(lst_nifty_ltp)>0:
         
-        if ltp_nifty_ATM_CE<1:
-            print(f"Waiting for 3 more seconds to refresh the LTP")
-            time.sleep(3)
-            iLog(f"ltp_nifty_ATM_CE={ltp_nifty_ATM_CE}, ltp_nifty_ATM_PE={ltp_nifty_ATM_PE}")
+        nifty50 = lst_nifty_ltp[-1]
+        # print("nifty50=",nifty50,flush=True)
 
-        dict_nifty_ce["last_price"] = ltp_nifty_ATM_CE
-        dict_nifty_pe["last_price"] = ltp_nifty_ATM_PE
+        nifty_atm = round(int(nifty50),-2)
+        iLog(f"nifty_atm={nifty_atm}")
 
-    if nifty_bank=="BANK" or nifty_bank=="ALL":
-        iLog(f"ltp_bank_ATM_CE={ltp_bank_ATM_CE}, ltp_bank_ATM_PE={ltp_bank_ATM_PE}")  
 
+        # --- Generate strikes ---
+        strikes_ce = [nifty_atm + strike_step * i for i in range(1, 20)]
+        strikes_pe = [nifty_atm - strike_step * i for i in range(1, 20)]
+
+
+        for strike in strikes_ce:
+            tmp_ins_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.isoformat() , is_fut=False,strike=strike, is_CE=True)
+            if float(alice.get_scrip_info(tmp_ins_ce)['LTP']) <= 20:
+                print(alice.get_scrip_info(tmp_ins_ce)['LTP'],flush=True)
+                break
+
+
+        for strike in strikes_pe:
+            tmp_ins_pe = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.isoformat() , is_fut=False,strike=strike, is_CE=False)
+            if float(alice.get_scrip_info(tmp_ins_pe)['LTP']) <= 20:
+                print(alice.get_scrip_info(tmp_ins_pe)['LTP'],flush=True)
+                break
+
+        iLog(f"Fixed Strike selected tmp_ins_ce={tmp_ins_ce} \n tmp_ins_pe={tmp_ins_pe}")
+
+        # Place 1st order as market order for both CE and PE
+        qty = 75
+        place_order(user,tmp_ins_ce,qty,order_type=OrderType.Market,order_tag="STG1")
+        place_order(user,tmp_ins_pe,qty,order_type=OrderType.Market,order_tag="STG1")
+
+        # Place 2nd order as Limit order for both CE and PE @ 30
+        qty = 75
+        price = 30.0
+        place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
+        place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
+        
+        # Place 3rd order as Limit order for both CE and PE @ 60
+        qty = 75
+        price = 60.0
+        place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
+        place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
+
+        # Place 4th order as Limit order for both CE and PE @ 90
+        qty = 75
+        price = 90.0
+        place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
+        place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
+        
+        # Place 5th order as Limit order for both CE and PE @ 120
+        qty = 75
+        price = 120.0
+        place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
+        place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
 
 
 def check_positions(user):
@@ -1401,15 +1328,15 @@ def strategy1(user):
     global strategy1_HHMM
     strategy1_HHMM = 0
     '''
-    order tag = ST1
+    order tag = STG1
     Peg levels based CE sell strategy ( MO for <20 30,60,90,120,150,180)
     Put trades based on the option type and strike selection and above price levels (now only for NIFTY)
     1. Check positions
     2. If position already exists
         2.1 Check if orders exists for those position , if yes do nothing
-        2.2 Else get pivot points for this position symbol and place orders
+        2.2 Else call place_option_orders_fixed() to place fixed orders for CE & PE
     3. If position does not exist
-        3.1 Place order for the current option
+        3.1 call place_option_orders_fixed() to place fixed orders for CE & PE
     '''
     iLog("In strategy1(): ")
     alice_ord = user['broker_object'] 
@@ -1431,18 +1358,20 @@ def strategy1(user):
         
         else:
             iLog("strategy1(): Existing Orders not found. New Orders will be placed...")
-            get_option_tokens("NIFTY")
-            if option_sell_type=='CE' or option_sell_type=='BOTH':
-                print(f"dict_nifty_ce:=\n{dict_nifty_ce}",flush=True)
-                iLog("strategy1(): Placing CE orders...")
-                place_option_orders_pivot(user,False,dict_nifty_ce)
+            
+            place_option_orders_fixed(user)
+            
+            # get_option_tokens("NIFTY")
 
-            if option_sell_type=='PE' or option_sell_type=='BOTH':
-                print(f"dict_nifty_pe:=\n{dict_nifty_pe}",flush=True)
-                iLog("strategy1(): Placing PE orders...")
-                place_option_orders_pivot(user,False,dict_nifty_pe)
+            # if option_sell_type=='CE' or option_sell_type=='BOTH':
+            #     print(f"dict_nifty_ce:=\n{dict_nifty_ce}",flush=True)
+            #     iLog("strategy1(): Placing CE orders...")
+            #     place_option_orders_pivot(user,False,dict_nifty_ce)
 
-
+            # if option_sell_type=='PE' or option_sell_type=='BOTH':
+            #     print(f"dict_nifty_pe:=\n{dict_nifty_pe}",flush=True)
+            #     iLog("strategy1(): Placing PE orders...")
+            #     place_option_orders_pivot(user,False,dict_nifty_pe)
 
 def strategy2(user):
     # Do a strangle for price ~200 and keep SL of 70, add position to opposite leg when 50 SL is reached 
@@ -1581,12 +1510,17 @@ alice.get_contract_master("NSE")
 alice.get_contract_master("NFO")
 
 
+
 # Get Nifty and BankNifty spot instrument object
 ins_nifty = alice.get_instrument_by_symbol('INDICES', 'NIFTY 50')
 ins_bank = alice.get_instrument_by_symbol('INDICES', 'NIFTY BANK')
 
+
+
 ins_nifty_fut = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=dt_next_exp.isoformat(), is_fut=True,strike=None, is_CE=False)
 
+
+# previous close ??????????????????????????????????????????????????????
 
 # Get nifty previous close and current price
 nifty_info = alice.get_scrip_info(ins_nifty)
@@ -1595,11 +1529,9 @@ nifty_info = alice.get_scrip_info(ins_nifty)
 nifty_atm = round(int(float(nifty_info['LTP'])),-2)
 iLog(f"nifty_atm={nifty_atm}")
 
-# strike_ce = float(nifty_atm + nifty_strike_ce_offset)   #OTM Options
-# strike_pe = float(nifty_atm - nifty_strike_pe_offset)
 
 
-# -- Start - Temp code to sell option at a particular strike at market opening at market price
+# -- Start - For Main User only - Temp code to sell option at a particular strike at market opening at market price
 
 ################################
 # Wait till start of the market
@@ -1625,6 +1557,7 @@ if int(datetime.datetime.now().strftime("%H%M")) < 916:
 
         iLog(f"tmp_ins_pe={tmp_ins_ce}")
 
+    
         alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_ce,quantity = qty,order_type = OrderType.Market,
             product_type = ProductType.Normal,price = 0.0,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_CE")
 
@@ -1655,11 +1588,10 @@ if flg_PE_CE_BOTH=="PE" or flg_PE_CE_BOTH=="BOTH":
         product_type = ProductType.Normal,price = pe_price,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_PE")
 
 
-# alice.get_script_info("NFO", "NIFTY", expiry_date=exp_dt.isoformat(), is_fut=False, strike=strike, is_CE=is_CE)
 # -- End - Temp code to sell option at a particular strike at market opening at market price
 
-print("sys.exit(0)")
-sys.exit(0)
+# print("sys.exit(0)")
+# sys.exit(0)
 
 
 # cfg.set("tokens","session_id",session_id)
@@ -1669,8 +1601,6 @@ sys.exit(0)
 print(f"Updated session_id at {datetime.datetime.now()}",flush=True)
 
 
-
-sys.exit(0)
 
 # ins_crude = alice.get_instrument_by_symbol('MCX', 'CRUDEOIL22NOVFUT')
 
@@ -1719,15 +1649,12 @@ ins_bank_ce = ins_bank
 ins_bank_pe = ins_bank
 ins_bank_opt = ins_bank
 
-
-
 # subscribe_ins()
-
 
 # Get ATM /(+-offset) option tokens for Nifty and BankNifty
 get_option_tokens("NIFTY")
 
-get_option_tokens_fixed
+
 
 
 iLog("Waiting for 5 seconds till websocket refreshes LTPs")
@@ -1743,14 +1670,14 @@ strategy2_executed=0
 # Test Area
 # get_realtime_config()
 # strategy1(user)
-sys.exit(0)
+# sys.exit(0)
 
 ########################################################
 ####            MAIN PROGRAM START HERE ...         ####
 ########################################################  
 # Process tick data/indicators and generate buy/sell and execute orders
 cur_HHMM = int(datetime.datetime.now().strftime("%H%M"))
-while cur_HHMM > 914 and cur_HHMM<2332: # 1732
+while cur_HHMM > 914 and cur_HHMM<1532: # 1732
     t1 = time.time()
     
     # 1. Get realtime config changes from .ini file and reload variables
