@@ -62,12 +62,6 @@
 # Can look at frequency of data export through parameter, say 60,120,240 etc.. 
 
 # Guidelines:
-# TSL to be double of SL (Otherwise mostly SLs are hit as they tend to )
-# SL will be hit in high volatility. SL may be set to ATR*3 or medium df Supertrend Value
-# Always buy market, in case SL reverse and get out cost to cost. Market has to come up, but mind expiry :)  
-# SLs are usually hit in volatile market, so see if you can use less qty and no SLs, especially bank.
-# Dont go against the trend in any case. 
-# Avoid manual trades
 
 # To Manually run program use following command
 # python3 ab_options_sell.py &
@@ -1123,7 +1117,7 @@ def place_option_orders_fixed(user):
     iLog(f"[{user['userid']}] place_option_orders_fixed():")
 
     
-    strike_step = 50
+    strike_step = 100
     # lst_nifty_ltp.append(24609.70)
     if len(lst_nifty_ltp)>0:
         
@@ -1141,23 +1135,68 @@ def place_option_orders_fixed(user):
 
         for strike in strikes_ce:
             tmp_ins_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.isoformat() , is_fut=False,strike=strike, is_CE=True)
-            if float(alice.get_scrip_info(tmp_ins_ce)['LTP']) <= 20:
+            if float(alice.get_scrip_info(tmp_ins_ce)['LTP']) <= 16:
                 print(alice.get_scrip_info(tmp_ins_ce)['LTP'],flush=True)
                 break
 
 
         for strike in strikes_pe:
             tmp_ins_pe = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.isoformat() , is_fut=False,strike=strike, is_CE=False)
-            if float(alice.get_scrip_info(tmp_ins_pe)['LTP']) <= 20:
+            if float(alice.get_scrip_info(tmp_ins_pe)['LTP']) <= 16:
                 print(alice.get_scrip_info(tmp_ins_pe)['LTP'],flush=True)
                 break
 
         iLog(f"Fixed Strike selected tmp_ins_ce={tmp_ins_ce} \n tmp_ins_pe={tmp_ins_pe}")
 
+        # 1. Check existing positions and place orders accordingly
+        pos = alice.get_netwise_positions()
+        flg_tmp_ins_ce = False
+        flg_tmp_ins_pe = False
+        if pos:
+            for p in  pos:
+                # Check if the selected CE and PE instruments are already in the position
+                if p['Tsym'] == alice.get_scrip_info(tmp_ins_ce)['TSymbl']:
+                    iLog(f"Position already exists for CE: {p['Tsym']}")
+                    flg_tmp_ins_ce = True
+                elif p['Tsym'] == alice.get_scrip_info(tmp_ins_pe)['TSymbl']:
+                    iLog(f"Position already exists for PE: {p['Tsym']}")
+                    flg_tmp_ins_pe = True
+                else :
+                    ins_opt =  alice.get_instrument_by_symbol('NFO',p['Tsym'])
+                    qty = 75
+                    if p['LTP'] <=20 :
+                        # Place fixed orders for existing positions
+                        
+                        price = 30.0
+                        place_order(user,ins_opt,qty,price,order_tag="STG1")
+
+                        price = 60.0
+                        place_order(user,ins_opt,qty,price,order_tag="STG1")
+
+                        price = 90.0
+                        place_order(user,ins_opt,qty,price,order_tag="STG1")
+
+                    elif p['LTP'] > 20 and p['LTP'] <= 40:
+                        price = 60.0
+                        place_order(user,ins_opt,qty,price,order_tag="STG1")
+
+                        price = 90.0
+                        place_order(user,ins_opt,qty,price,order_tag="STG1")
+
+                    elif p['LTP'] > 40 and p['LTP'] <= 80:
+                        price = 90.0
+                        place_order(user,ins_opt,qty,price,order_tag="STG1")
+
+                        price = 120.0
+                        place_order(user,ins_opt,qty,price,order_tag="STG1")
+                            
+                        price = 150.0
+                        place_order(user,ins_opt,qty,price,order_tag="STG1")
+
         # Place 1st order as market order for both CE and PE
         qty = 75
-        place_order(user,tmp_ins_ce,qty,order_type=OrderType.Market,order_tag="STG1")
-        place_order(user,tmp_ins_pe,qty,order_type=OrderType.Market,order_tag="STG1")
+        if not flg_tmp_ins_ce: place_order(user,tmp_ins_ce,qty,order_type=OrderType.Market,order_tag="STG1")
+        if not flg_tmp_ins_pe: place_order(user,tmp_ins_pe,qty,order_type=OrderType.Market,order_tag="STG1")
 
         # Place 2nd order as Limit order for both CE and PE @ 30
         qty = 75
@@ -1340,7 +1379,7 @@ def strategy1(user):
     '''
     iLog("In strategy1(): ")
 
-    if dow in (3, 4):
+    if dow in (3, 4):   # Wednesday, Thursday
         pass
     else:
         iLog("strategy1(): Strategy execution is not allowed on this day. Exiting...")
@@ -1538,6 +1577,10 @@ nifty_atm = round(int(float(nifty_info['LTP'])),-2)
 iLog(f"nifty_atm={nifty_atm}")
 
 
+# lst_nifty_ltp.append(float(alice.get_scrip_info(ins_nifty)['LTP']))
+# place_option_orders_fixed(users[0])
+# sys.exit(0)
+
 
 # -- Start - For Main User only - Temp code to sell option at a particular strike at market opening at market price
 
@@ -1549,7 +1592,7 @@ while float(datetime.datetime.now().strftime("%H%M%S.%f")[:-3]) < 91459.900:
     pass
 
 
-flg_PE_CE_BOTH = "BOTH"
+flg_PE_CE_BOTH = "NONE"
 ########################################################
 # Code block to place orders at immediate market opening
 ########################################################
@@ -1583,17 +1626,17 @@ if int(datetime.datetime.now().strftime("%H%M")) < 916:
             product_type = ProductType.Normal,price = 0.0,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False, order_tag="GM_PE")
 
 
-# Sleep for 10 seconds and then pick the high value of each instrument and add 30 to it and place a second limit order to CE/PE  
-time.sleep(10) 
-if flg_PE_CE_BOTH=="CE" or flg_PE_CE_BOTH=="BOTH":
-    ce_price = float(alice.get_scrip_info(tmp_ins_ce)['LTP'] + 30)
-    alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_ce,quantity = qty,order_type = OrderType.Limit,
-        product_type = ProductType.Normal,price = ce_price,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_CE")
+    # Sleep for 10 seconds and then pick the high value of each instrument and add 30 to it and place a second limit order to CE/PE  
+    time.sleep(10) 
+    if flg_PE_CE_BOTH=="CE" or flg_PE_CE_BOTH=="BOTH":
+        ce_price = float(alice.get_scrip_info(tmp_ins_ce)['LTP'] + 30)
+        alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_ce,quantity = qty,order_type = OrderType.Limit,
+            product_type = ProductType.Normal,price = ce_price,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_CE")
 
-if flg_PE_CE_BOTH=="PE" or flg_PE_CE_BOTH=="BOTH":
-    pe_price = float(alice.get_scrip_info(tmp_ins_pe)['LTP'] + 30)
-    alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_pe,quantity = qty,order_type = OrderType.Limit,
-        product_type = ProductType.Normal,price = pe_price,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_PE")
+    if flg_PE_CE_BOTH=="PE" or flg_PE_CE_BOTH=="BOTH":
+        pe_price = float(alice.get_scrip_info(tmp_ins_pe)['LTP'] + 30)
+        alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_pe,quantity = qty,order_type = OrderType.Limit,
+            product_type = ProductType.Normal,price = pe_price,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_PE")
 
 
 # -- End - Temp code to sell option at a particular strike at market opening at market price
@@ -1663,8 +1706,6 @@ ins_bank_opt = ins_bank
 get_option_tokens("NIFTY")
 
 
-
-
 iLog("Waiting for 5 seconds till websocket refreshes LTPs")
 time.sleep(5)   # Sleep so that tick for the ltp gets accumulated
 
@@ -1677,8 +1718,9 @@ strategy2_executed=0
 
 # Test Area
 # get_realtime_config()
-# strategy1(user)
-# sys.exit(0)
+# strategy1(users[0])
+place_option_orders_fixed(users[0])
+sys.exit(0)
 
 ########################################################
 ####            MAIN PROGRAM START HERE ...         ####
