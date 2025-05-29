@@ -9,25 +9,7 @@
 # pip install --upgrade google-api-python-client google-auth-httplib2 google-auth-oauthlib
 # https://developers.google.com/sheets/api/quickstart/python
 
-###### STRATEGY / TRADE PLAN #####
-# Trading Style     : Intraday. Positional if MTM is negative.
-# Trade Timing      : Regular Market hours 
-# Trading Capital   : Rs 6,60,000 approx
-# Trading Qty       : Min upto 6 lots
-# Premarket Routine : TBD
-# Trading Goals     : Short max Nifty OTM Call/Put < 100   
-# Time Frame        : 2 min
-# Entry Criteria    : Entry post 10.30 AM / Price Action = Sell CE; Price Action SELL PE
-# Exit Criteria     : Book 75% at 30 ponts gain/nearest Pivot Level-10pts (Whichever is earliest), rest based on Nearest Pivot Level - 10pts  
-# Risk Capacity     : TBD. Always use next week expiry to be safe and if price goes above 150, switch to next expiry
-# Order Management  : Only target orders set; Manually manage -ve MTM (Use Mean reversion/Adjust to next strikes)
 
-# Supertrend Buy signal will trigger ATM CE buy
-# Supertrend Sell signal will trigger ATM PE buy 
-# Existing positions to be closed before order trigger
-# For option price, ATM ltp CE and ATM ltp PE to be subscribed dynamically and stored in global variables
-# Nifty option order trigger to be based on Nifty50 Index movement hence nifty50 dataframe required 
-# BankNifty option order trigger to be based on BankNifty Index movement hence banknifty dataframe required to be maintained seperately
 
 # bg process
 # 2020-09-01 09:59:18.152555|1|chat_id=670221062 text=Cmd ls
@@ -40,18 +22,11 @@
 # Instead of check_trade_time_zone() plan for no_trade_zone() 
 # Update Contract Symbol ab.update_contract_symbol(). If last friday is holiday this code dosent run and the symbol is not updated and the program fails
 # Consider seperate sl_buffer for nifty and bank in get_trade_price()
-# Check if order parameters like order type and others can be paramterised
 # Look at close pending orders, my not be efficient, exception handling and all
 # WebSocket disconnection and subscription/tick loss issue. Upgraded the package  
-# Option of MIS orders for bank to be added, maybe for nifty as well. Can test with nifty 
 # check_MTM_Limit() limitation : if other nifty or bank scrips are traded this will messup the position
 # trade_limit_reached() moved before check_pending_orders(). Need to check if this is the correct approach
 # get_trade_price bo_level to be parameterised from .ini 0 , 1 (half of atr), 2 (~atr)
-# If ATR > 10 or something activate BO3
-# In ST up/down if ST_MEDIUM is down/Up - If high momentum (check rate of change) chances are it will break medium SL 
-# Look at 3 min to 6 min crossover points , compare ST values of low and medium for possible override
-# Retun/Exit function after Postion check in buy/sell function fails 
-# Look at df_nifty.STX.values; Can we use tail to get last n values in the list
 # Can have few tasks to be taken care/check each min like MTM/Tradefalg check/set. This is apart from interval
 # Delay of 146 secs, 57 secs, 15 secs etc seen. Check and Need to handle 
 # Look at 5/10 mins trend, dont take positions against the trend
@@ -62,7 +37,6 @@
 # Can look at frequency of data export through parameter, say 60,120,240 etc.. 
 
 # Guidelines:
-
 # To Manually run program use following command
 # python3 ab_options_sell.py &
 
@@ -309,32 +283,35 @@ dict_nifty_opt_selected = {} # for storing the details of existing older option 
 
 
 
-
-# Get current/next week expiry 
-# ----------------------------
-# Standard current expiry date
+################################################
+#   Get current/next week/Monthly expiry dates 
+################################################
+# Standard current and next expiry date
 cur_expiry_date = datetime.date.today() + datetime.timedelta( ((3-datetime.date.today().weekday()) % 7))
+nxt_expiry_date = cur_expiry_date + datetime.timedelta(days=7)  # Next week expiry date
+
+
+holiday_dates = [x.strip() for x in holiday_dates]  # Remove any leading/trailing spaces
+
+# Check if current expiry date is a holiday, if so then reduce 1 day
+while str(cur_expiry_date) in holiday_dates:
+    cur_expiry_date = cur_expiry_date - datetime.timedelta(days=1)
+
+# Check if next expiry date is a holiday, if so then reduce 1 day
+while str(nxt_expiry_date) in holiday_dates:
+    nxt_expiry_date = nxt_expiry_date - datetime.timedelta(days=1)
 
 # if today is tue or wed then use next expiry else use current expiry. .isoweekday() 1=Mon,2=Tue,3=Wed, 4=Thu, 5=Fri
 dow = datetime.date.today().isoweekday()    # Also used in placing orders 
-if dow  in (next_week_expiry_days):  # next_week_expiry_days = 2,3,4 
-    expiry_date = datetime.date.today() + datetime.timedelta( ((3-datetime.date.today().weekday()) % 7)+7 )
+if dow  in (next_week_expiry_days):         # next_week_expiry_days = 2,3,4 
+    expiry_date = nxt_expiry_date
 else:
     expiry_date = cur_expiry_date
 
-if str(expiry_date) in holiday_dates :
-    expiry_date = expiry_date - datetime.timedelta(days=1)
-    cur_expiry_date = cur_expiry_date - datetime.timedelta(days=1)
-
-
-# For testing only, To be removed
-# cur_expiry_date = expiry_date    
-
 # Get last thursday of next month for getting Next month Nifty Future Contract  
 dt_next_exp = ((datetime.date.today()+ relativedelta(months=1)) + relativedelta(day=31, weekday=TH(-1)))
-if str(dt_next_exp) in holiday_dates :
+while str(dt_next_exp) in holiday_dates:
     dt_next_exp = dt_next_exp - datetime.timedelta(days=1)
-
 
 
 
@@ -1132,14 +1109,14 @@ def place_option_orders_fixed(user):
         strikes_ce = [nifty_atm + strike_step * i for i in range(1, 20)]
         strikes_pe = [nifty_atm - strike_step * i for i in range(1, 20)]
 
-
+        # --- Get the CE strike with LTP <= 16 ---
         for strike in strikes_ce:
             tmp_ins_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.isoformat() , is_fut=False,strike=strike, is_CE=True)
             if float(alice.get_scrip_info(tmp_ins_ce)['LTP']) <= 16:
                 print(alice.get_scrip_info(tmp_ins_ce)['LTP'],flush=True)
                 break
 
-
+        # --- Get the PE strike with LTP <= 16 ---
         for strike in strikes_pe:
             tmp_ins_pe = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.isoformat() , is_fut=False,strike=strike, is_CE=False)
             if float(alice.get_scrip_info(tmp_ins_pe)['LTP']) <= 16:
@@ -1193,6 +1170,7 @@ def place_option_orders_fixed(user):
                         price = 150.0
                         place_order(user,ins_opt,qty,price,order_tag="STG1")
 
+        # If the selected CE and PE instruments are not in the position, place orders
         # Place 1st order as market order for both CE and PE
         qty = 75
         if not flg_tmp_ins_ce: place_order(user,tmp_ins_ce,qty,order_type=OrderType.Market,order_tag="STG1")
@@ -1201,26 +1179,26 @@ def place_option_orders_fixed(user):
         # Place 2nd order as Limit order for both CE and PE @ 30
         qty = 75
         price = 30.0
-        place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
-        place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
+        if not flg_tmp_ins_ce: place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
+        if not flg_tmp_ins_pe: place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
         
         # Place 3rd order as Limit order for both CE and PE @ 60
         qty = 75
         price = 60.0
-        place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
-        place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
+        if not flg_tmp_ins_ce: place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
+        if not flg_tmp_ins_pe: place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
 
         # Place 4th order as Limit order for both CE and PE @ 90
         qty = 75
         price = 90.0
-        place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
-        place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
+        if not flg_tmp_ins_ce: place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
+        if not flg_tmp_ins_pe: place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
         
         # Place 5th order as Limit order for both CE and PE @ 120
         qty = 75
         price = 120.0
-        place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
-        place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
+        if not flg_tmp_ins_ce: place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
+        if not flg_tmp_ins_pe: place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
 
 
 def check_positions(user):
@@ -1236,7 +1214,7 @@ def check_positions(user):
     pos = alice_ord.get_netwise_positions() # Returns list of dicts if position is there else returns dict {'emsg': 'No Data', 'stat': 'Not_Ok'}
     if type(pos)==list:
         df_pos = pd.DataFrame(pos)[['Symbol','Tsym','Netqty','MtoM']]
-        print(f"{strMsgSuffix}df_pos:=\n{df_pos}",flush=True)
+        # print(f"{strMsgSuffix}df_pos:=\n{df_pos}",flush=True)
         
         df_pos['mtm'] = df_pos.MtoM.str.replace(",","").astype(float)
         mtm = sum(df_pos['mtm'])
@@ -1249,7 +1227,10 @@ def check_positions(user):
         net_margin_utilised = abs(pos_total/50) * nifty_avg_margin_req_per_lot
         profit_target = round(net_margin_utilised * (user['profit_target_perc']/100))
 
-        print(f"{strMsgSuffix} net_margin_utilised={net_margin_utilised} mtm={mtm} pos_nifty={pos_nifty} pos_bank={pos_bank}")
+        # Print once every 5 minutes
+        now = datetime.datetime.now()
+        if (now.minute % 5 == 0) and (now.second < 10):
+            iLog(f"{strMsgSuffix} mtm={mtm} profit_target={profit_target} net_margin_utilised={net_margin_utilised} pos_nifty={pos_nifty} pos_bank={pos_bank}")
 
         # Aliceblue.squareoff_positions()
         if mtm > profit_target:
@@ -1379,7 +1360,7 @@ def strategy1(user):
     '''
     iLog("In strategy1(): ")
 
-    if dow in (3, 4):   # Wednesday, Thursday
+    if dow in (1, 2, 3, 4, 5):   # Wednesday, Thursday
         pass
     else:
         iLog("strategy1(): Strategy execution is not allowed on this day. Exiting...")
@@ -1592,7 +1573,7 @@ while float(datetime.datetime.now().strftime("%H%M%S.%f")[:-3]) < 91459.900:
     pass
 
 
-flg_PE_CE_BOTH = "NONE"
+flg_MKT_OPN_PE_CE_BOTH = "NONE" # "CE" | "PE" | "BOTH" | "NONE"
 ########################################################
 # Code block to place orders at immediate market opening
 ########################################################
@@ -1600,7 +1581,7 @@ if int(datetime.datetime.now().strftime("%H%M")) < 916:
     exp_dt = cur_expiry_date    # datetime.date(2025, 5, 22)
     
     # === CALL
-    if flg_PE_CE_BOTH=="CE" or flg_PE_CE_BOTH=="BOTH":
+    if flg_MKT_OPN_PE_CE_BOTH=="CE" or flg_MKT_OPN_PE_CE_BOTH=="BOTH":
         strike = nifty_atm  # 24900
         qty = 75
         is_CE = True   # if CE or PE
@@ -1613,7 +1594,7 @@ if int(datetime.datetime.now().strftime("%H%M")) < 916:
             product_type = ProductType.Normal,price = 0.0,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_CE")
 
     # === PUT
-    if flg_PE_CE_BOTH=="PE" or flg_PE_CE_BOTH=="BOTH":
+    if flg_MKT_OPN_PE_CE_BOTH=="PE" or flg_MKT_OPN_PE_CE_BOTH=="BOTH":
         strike = nifty_atm  # 24500
         qty = 75
         is_CE = False   # if CE or PE
@@ -1628,12 +1609,12 @@ if int(datetime.datetime.now().strftime("%H%M")) < 916:
 
     # Sleep for 10 seconds and then pick the high value of each instrument and add 30 to it and place a second limit order to CE/PE  
     time.sleep(10) 
-    if flg_PE_CE_BOTH=="CE" or flg_PE_CE_BOTH=="BOTH":
+    if flg_MKT_OPN_PE_CE_BOTH=="CE" or flg_MKT_OPN_PE_CE_BOTH=="BOTH":
         ce_price = float(alice.get_scrip_info(tmp_ins_ce)['LTP'] + 30)
         alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_ce,quantity = qty,order_type = OrderType.Limit,
             product_type = ProductType.Normal,price = ce_price,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_CE")
 
-    if flg_PE_CE_BOTH=="PE" or flg_PE_CE_BOTH=="BOTH":
+    if flg_MKT_OPN_PE_CE_BOTH=="PE" or flg_MKT_OPN_PE_CE_BOTH=="BOTH":
         pe_price = float(alice.get_scrip_info(tmp_ins_pe)['LTP'] + 30)
         alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_pe,quantity = qty,order_type = OrderType.Limit,
             product_type = ProductType.Normal,price = pe_price,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_PE")
@@ -1719,13 +1700,13 @@ strategy2_executed=0
 # Test Area
 # get_realtime_config()
 # strategy1(users[0])
-place_option_orders_fixed(users[0])
-sys.exit(0)
+# place_option_orders_fixed(users[0])
+# sys.exit(0)
 
-########################################################
-####            MAIN PROGRAM START HERE ...         ####
-########################################################  
-# Process tick data/indicators and generate buy/sell and execute orders
+#########################################################
+####            MAIN PROGRAM STARTS HERE ...         ####
+#########################################################  
+# Loop to check for realtime config changes, execute strategies and check positions
 cur_HHMM = int(datetime.datetime.now().strftime("%H%M"))
 while cur_HHMM > 914 and cur_HHMM<1532: # 1732
     t1 = time.time()
@@ -1769,6 +1750,6 @@ while cur_HHMM > 914 and cur_HHMM<1532: # 1732
         strMsg="Processing time(secs)= {0:.2f}".format(t2)
         iLog(strMsg,2)
 
-    # 6. Wait for the specified time interval before processing
-    time.sleep(interval_seconds)   # Default 30 Seconds
+    # 6. Wait for the specified time interval before further processing
+    time.sleep(interval_seconds)   # Default 10 Seconds
     cur_HHMM = int(datetime.datetime.now().strftime("%H%M"))
