@@ -1090,120 +1090,225 @@ def get_option_tokens(nifty_bank="ALL"):
     if nifty_bank=="BANK" or nifty_bank=="ALL":
         iLog(f"ltp_bank_ATM_CE={ltp_bank_ATM_CE}, ltp_bank_ATM_PE={ltp_bank_ATM_PE}")  
 
-def place_option_orders_fixed(user):
-    '''This procedure gets CE and PE instrumets where max LTP is <=20 and places Market orders and Limit orders at 30,60,90,120
+def place_nifty_option_orders_fixed(user):
+    '''This procedure gets nifty CE and PE instrumets where max LTP is <=20 and places Market orders and Limit orders at 30,60,90,120
     for both CE and PE.
     It is called from the main loop and not from the strategy1 code.
     '''
 
-    iLog(f"[{user['userid']}] place_option_orders_fixed():")
+    iLog(f"[{user['userid']}] place_nifty_option_orders_fixed():")
 
     
     strike_step = 100
-    # lst_nifty_ltp.append(24609.70)
-    if len(lst_nifty_ltp)>0:
-        
-        nifty50 = lst_nifty_ltp[-1]
-        # print("nifty50=",nifty50,flush=True)
 
-        nifty_atm = round(int(nifty50),-2)
-        iLog(f"nifty_atm={nifty_atm}")
+    nifty_info = alice.get_scrip_info(ins_nifty)
+    nifty_atm = round(int(float(nifty_info['LTP'])),-2)
+
 
 
         # --- Generate strikes ---
-        strikes_ce = [nifty_atm + strike_step * i for i in range(1, 20)]
-        strikes_pe = [nifty_atm - strike_step * i for i in range(1, 20)]
+    strikes_ce = [nifty_atm + strike_step * i for i in range(1, 20)]
+    strikes_pe = [nifty_atm - strike_step * i for i in range(1, 20)]
 
-        # --- Get the CE strike with LTP <= 16 ---
-        for strike in strikes_ce:
-            tmp_ins_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.isoformat() , is_fut=False,strike=strike, is_CE=True)
-            if float(alice.get_scrip_info(tmp_ins_ce)['LTP']) <= 16:
-                print(alice.get_scrip_info(tmp_ins_ce)['LTP'],flush=True)
-                break
+    # --- Get the CE strike with LTP <= 16 ---
+    for strike in strikes_ce:
+        tmp_ins_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.isoformat() , is_fut=False,strike=strike, is_CE=True)
+        if float(alice.get_scrip_info(tmp_ins_ce)['LTP']) <= 16:
+            print(alice.get_scrip_info(tmp_ins_ce)['LTP'],flush=True)
+            break
 
-        # --- Get the PE strike with LTP <= 16 ---
-        for strike in strikes_pe:
-            tmp_ins_pe = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.isoformat() , is_fut=False,strike=strike, is_CE=False)
-            if float(alice.get_scrip_info(tmp_ins_pe)['LTP']) <= 16:
-                print(alice.get_scrip_info(tmp_ins_pe)['LTP'],flush=True)
-                break
+    # --- Get the PE strike with LTP <= 16 ---
+    for strike in strikes_pe:
+        tmp_ins_pe = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.isoformat() , is_fut=False,strike=strike, is_CE=False)
+        if float(alice.get_scrip_info(tmp_ins_pe)['LTP']) <= 16:
+            print(alice.get_scrip_info(tmp_ins_pe)['LTP'],flush=True)
+            break
 
-        iLog(f"Fixed Strike selected tmp_ins_ce={tmp_ins_ce} \n tmp_ins_pe={tmp_ins_pe}")
+    iLog(f"Fixed Strike selected tmp_ins_ce={tmp_ins_ce} \n tmp_ins_pe={tmp_ins_pe}")
 
-        # 1. Check existing positions and place orders accordingly
-        pos = alice.get_netwise_positions()
-        flg_tmp_ins_ce = False
-        flg_tmp_ins_pe = False
-        if pos:
-            for p in  pos:
-                # Check if the selected CE and PE instruments are already in the position
-                if p['Tsym'] == alice.get_scrip_info(tmp_ins_ce)['TSymbl']:
-                    iLog(f"Position already exists for CE: {p['Tsym']}")
-                    flg_tmp_ins_ce = True
-                elif p['Tsym'] == alice.get_scrip_info(tmp_ins_pe)['TSymbl']:
-                    iLog(f"Position already exists for PE: {p['Tsym']}")
-                    flg_tmp_ins_pe = True
-                else :
-                    ins_opt =  alice.get_instrument_by_symbol('NFO',p['Tsym'])
-                    qty = 75
-                    if p['LTP'] <=20 :
-                        # Place fixed orders for existing positions
+    # 1. Check existing positions and place orders accordingly
+    pos = alice.get_netwise_positions()
+    flg_tmp_ins_ce = False
+    flg_tmp_ins_pe = False
+    if pos:
+        for p in  pos:
+            # Check if the selected CE and PE instruments are already in the position
+            if p['Tsym'] == alice.get_scrip_info(tmp_ins_ce)['TSymbl']:
+                iLog(f"Position already exists for CE: {p['Tsym']}")
+                flg_tmp_ins_ce = True
+            elif p['Tsym'] == alice.get_scrip_info(tmp_ins_pe)['TSymbl']:
+                iLog(f"Position already exists for PE: {p['Tsym']}")
+                flg_tmp_ins_pe = True
+            else :
+                ins_opt =  alice.get_instrument_by_symbol('NFO',p['Tsym'])
+                qty = 75
+                if p['LTP'] <=20 :
+                    # Place fixed orders for existing positions
+                    
+                    price = 30.0
+                    place_order(user,ins_opt,qty,price,order_tag="STG1")
+
+                    price = 60.0
+                    place_order(user,ins_opt,qty,price,order_tag="STG1")
+
+                    price = 90.0
+                    place_order(user,ins_opt,qty,price,order_tag="STG1")
+
+                elif p['LTP'] > 20 and p['LTP'] <= 40:
+                    price = 60.0
+                    place_order(user,ins_opt,qty,price,order_tag="STG1")
+
+                    price = 90.0
+                    place_order(user,ins_opt,qty,price,order_tag="STG1")
+
+                elif p['LTP'] > 40 and p['LTP'] <= 80:
+                    price = 90.0
+                    place_order(user,ins_opt,qty,price,order_tag="STG1")
+
+                    price = 120.0
+                    place_order(user,ins_opt,qty,price,order_tag="STG1")
                         
-                        price = 30.0
-                        place_order(user,ins_opt,qty,price,order_tag="STG1")
+                    price = 150.0
+                    place_order(user,ins_opt,qty,price,order_tag="STG1")
 
-                        price = 60.0
-                        place_order(user,ins_opt,qty,price,order_tag="STG1")
+    # If the selected CE and PE instruments are not in the position, place orders
+    # Place 1st order as market order for both CE and PE
+    qty = 75
+    if not flg_tmp_ins_ce: place_order(user,tmp_ins_ce,qty,order_type=OrderType.Market,order_tag="STG1")
+    if not flg_tmp_ins_pe: place_order(user,tmp_ins_pe,qty,order_type=OrderType.Market,order_tag="STG1")
 
-                        price = 90.0
-                        place_order(user,ins_opt,qty,price,order_tag="STG1")
+    # Place 2nd order as Limit order for both CE and PE @ 30
+    qty = 75
+    price = 30.0
+    if not flg_tmp_ins_ce: place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
+    if not flg_tmp_ins_pe: place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
+    
+    # Place 3rd order as Limit order for both CE and PE @ 60
+    qty = 75
+    price = 60.0
+    if not flg_tmp_ins_ce: place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
+    if not flg_tmp_ins_pe: place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
 
-                    elif p['LTP'] > 20 and p['LTP'] <= 40:
-                        price = 60.0
-                        place_order(user,ins_opt,qty,price,order_tag="STG1")
+    # Place 4th order as Limit order for both CE and PE @ 90
+    qty = 75
+    price = 90.0
+    if not flg_tmp_ins_ce: place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
+    if not flg_tmp_ins_pe: place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
+    
+    # Place 5th order as Limit order for both CE and PE @ 120
+    qty = 75
+    price = 120.0
+    if not flg_tmp_ins_ce: place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
+    if not flg_tmp_ins_pe: place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
 
-                        price = 90.0
-                        place_order(user,ins_opt,qty,price,order_tag="STG1")
+def place_sensex_option_orders_fixed(user):
+    '''This procedure gets sensex CE and PE instrumets where max LTP is <=20 and places Market orders and Limit orders at 50,100,150,200
+    250 for both CE and PE.
+    '''
 
-                    elif p['LTP'] > 40 and p['LTP'] <= 80:
-                        price = 90.0
-                        place_order(user,ins_opt,qty,price,order_tag="STG1")
+    iLog(f"[{user['userid']}] place_sensex_option_orders_fixed():")
 
-                        price = 120.0
-                        place_order(user,ins_opt,qty,price,order_tag="STG1")
-                            
-                        price = 150.0
-                        place_order(user,ins_opt,qty,price,order_tag="STG1")
+    
+    strike_step = 100
 
-        # If the selected CE and PE instruments are not in the position, place orders
-        # Place 1st order as market order for both CE and PE
-        qty = 75
-        if not flg_tmp_ins_ce: place_order(user,tmp_ins_ce,qty,order_type=OrderType.Market,order_tag="STG1")
-        if not flg_tmp_ins_pe: place_order(user,tmp_ins_pe,qty,order_type=OrderType.Market,order_tag="STG1")
+    sensex_info = alice.get_scrip_info(ins_sensex)
+    sensex_atm = round(int(float(sensex_info['LTP'])),-2)
 
-        # Place 2nd order as Limit order for both CE and PE @ 30
-        qty = 75
-        price = 30.0
-        if not flg_tmp_ins_ce: place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
-        if not flg_tmp_ins_pe: place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
-        
-        # Place 3rd order as Limit order for both CE and PE @ 60
-        qty = 75
-        price = 60.0
-        if not flg_tmp_ins_ce: place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
-        if not flg_tmp_ins_pe: place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
 
-        # Place 4th order as Limit order for both CE and PE @ 90
-        qty = 75
-        price = 90.0
-        if not flg_tmp_ins_ce: place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
-        if not flg_tmp_ins_pe: place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
-        
-        # Place 5th order as Limit order for both CE and PE @ 120
-        qty = 75
-        price = 120.0
-        if not flg_tmp_ins_ce: place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
-        if not flg_tmp_ins_pe: place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
+    # --- Generate strikes ---
+    strikes_ce = [sensex_atm + strike_step * i for i in range(1, 20)]
+    strikes_pe = [sensex_atm - strike_step * i for i in range(1, 20)]
+
+    # --- Get the CE strike with LTP <= 50 ---
+    for strike in strikes_ce:
+        tmp_ins_ce = alice.get_instrument_for_fno(exch="BFO",symbol='SENSEX', expiry_date=dt_sensex_exp.isoformat() , is_fut=False,strike=strike, is_CE=True)
+        if float(alice.get_scrip_info(tmp_ins_ce)['LTP']) <= 40:
+            print(alice.get_scrip_info(tmp_ins_ce)['LTP'],flush=True)
+            break
+
+    # --- Get the PE strike with LTP <= 50 ---
+    for strike in strikes_pe:
+        tmp_ins_pe = alice.get_instrument_for_fno(exch="BFO",symbol='SENSEX', expiry_date=dt_sensex_exp.isoformat() , is_fut=False,strike=strike, is_CE=False)
+        if float(alice.get_scrip_info(tmp_ins_pe)['LTP']) <= 40:
+            print(alice.get_scrip_info(tmp_ins_pe)['LTP'],flush=True)
+            break
+
+    iLog(f"Fixed Strike selected tmp_ins_ce={tmp_ins_ce} \n tmp_ins_pe={tmp_ins_pe}")
+
+    # 1. Check existing positions and place orders accordingly
+    pos = alice.get_netwise_positions()
+    flg_tmp_ins_ce = False
+    flg_tmp_ins_pe = False
+    if pos:
+        for p in  pos:
+            # Check if the selected CE and PE instruments are already in the position
+            if p['Tsym'] == alice.get_scrip_info(tmp_ins_ce)['TSymbl']:
+                iLog(f"Position already exists for CE: {p['Tsym']}")
+                flg_tmp_ins_ce = True
+            elif p['Tsym'] == alice.get_scrip_info(tmp_ins_pe)['TSymbl']:
+                iLog(f"Position already exists for PE: {p['Tsym']}")
+                flg_tmp_ins_pe = True
+            else :
+                ins_opt =  alice.get_instrument_by_symbol('BFO',p['Tsym'])
+                qty = 20
+                if p['LTP'] <=40 :
+                    # Place fixed orders for existing positions
+                    
+                    price = 50.0
+                    place_order(user,ins_opt,qty,price,order_tag="STG1")
+
+                    price = 100.0
+                    place_order(user,ins_opt,qty,price,order_tag="STG1")
+
+                    price = 150.0
+                    place_order(user,ins_opt,qty,price,order_tag="STG1")
+
+                elif p['LTP'] > 50 and p['LTP'] <= 100:
+                    price = 100.0
+                    place_order(user,ins_opt,qty,price,order_tag="STG1")
+
+                    price = 150.0
+                    place_order(user,ins_opt,qty,price,order_tag="STG1")
+
+                elif p['LTP'] > 100 and p['LTP'] <= 150:
+                    price = 150.0
+                    place_order(user,ins_opt,qty,price,order_tag="STG1")
+
+                    price = 200.0
+                    place_order(user,ins_opt,qty,price,order_tag="STG1")
+                        
+                    price = 250.0
+                    place_order(user,ins_opt,qty,price,order_tag="STG1")
+
+    # If the selected CE and PE instruments are not in the position, place orders
+    # Place 1st order as market order for both CE and PE
+    qty = 20
+    if not flg_tmp_ins_ce: place_order(user,tmp_ins_ce,qty,order_type=OrderType.Market,order_tag="STG1")
+    if not flg_tmp_ins_pe: place_order(user,tmp_ins_pe,qty,order_type=OrderType.Market,order_tag="STG1")
+
+    # Place 2nd order as Limit order for both CE and PE @ 30
+    qty = 20
+    price = 50.0
+    if not flg_tmp_ins_ce: place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
+    if not flg_tmp_ins_pe: place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
+    
+    # Place 3rd order as Limit order for both CE and PE @ 60
+    qty = 20
+    price = 100.0
+    if not flg_tmp_ins_ce: place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
+    if not flg_tmp_ins_pe: place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
+
+    # Place 4th order as Limit order for both CE and PE @ 90
+    qty = 20
+    price = 150.0
+    if not flg_tmp_ins_ce: place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
+    if not flg_tmp_ins_pe: place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
+    
+    # Place 5th order as Limit order for both CE and PE @ 120
+    qty = 20
+    price = 200.0
+    if not flg_tmp_ins_ce: place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
+    if not flg_tmp_ins_pe: place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
 
 
 def check_positions(user):
@@ -1365,46 +1470,14 @@ def strategy1(user):
     '''
     iLog("In strategy1(): ")
 
-    if dow in (1, 2, 3, 4):   # Wednesday, Thursday
-        pass
+    if dow in (1, 2):   # Monday, Tuesday
+        place_sensex_option_orders_fixed(user['broker_object'])
+    elif dow in (3, 4):   # Wednesday,Thursday    
+        place_nifty_option_orders_fixed(user['broker_object'])
     else:
         iLog("strategy1(): Strategy execution is not allowed on this day. Exiting...")
         return
 
-
-    alice_ord = user['broker_object'] 
-    option_sell_type = user['option_sell_type']
-
-    pos = alice_ord.get_netwise_positions() # Returns list of dicts if position is there else returns dict {'emsg': 'No Data', 'stat': 'Not_Ok'}
-    if type(pos)==list:
-        # Existing Positions present
-        iLog("strategy1(): Existing Positions found! No Order will be placed.")
-        pass
-    
-    else:
-        iLog("strategy1(): Existing Positions not found. Checking for existing Orders...")
-        
-        orders = alice_ord.get_order_history('')
-        if type(orders)==list:
-            iLog("strategy1(): Existing Orders found! No Order will be placed.")
-            pass
-        
-        else:
-            iLog("strategy1(): Existing Orders not found. New Orders will be placed...")
-            
-            place_option_orders_fixed(user)
-            
-            # get_option_tokens("NIFTY")
-
-            # if option_sell_type=='CE' or option_sell_type=='BOTH':
-            #     print(f"dict_nifty_ce:=\n{dict_nifty_ce}",flush=True)
-            #     iLog("strategy1(): Placing CE orders...")
-            #     place_option_orders_pivot(user,False,dict_nifty_ce)
-
-            # if option_sell_type=='PE' or option_sell_type=='BOTH':
-            #     print(f"dict_nifty_pe:=\n{dict_nifty_pe}",flush=True)
-            #     iLog("strategy1(): Placing PE orders...")
-            #     place_option_orders_pivot(user,False,dict_nifty_pe)
 
 def strategy2(user):
     # Do a strangle for price ~200 and keep SL of 70, add position to opposite leg when 50 SL is reached 
@@ -1558,12 +1631,10 @@ ins_nifty_fut = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_d
 
 # Get nifty previous close and current price
 nifty_info = alice.get_scrip_info(ins_nifty)
-sensex_info = alice.get_scrip_info(ins_sensex)
-
-
 nifty_atm = round(int(float(nifty_info['LTP'])),-2)
-sensex_atm = round(int(float(sensex_info['LTP'])),-2)
 
+sensex_info = alice.get_scrip_info(ins_sensex)
+sensex_atm = round(int(float(sensex_info['LTP'])),-2)
 
 
 iLog(f"nifty_atm={nifty_atm}, sensex_atm={sensex_atm}")
@@ -1601,7 +1672,7 @@ while float(datetime.datetime.now().strftime("%H%M%S.%f")[:-3]) < 91459.900:
 
 
 flg_MKT_OPN_PE_CE_BOTH = "NONE" # "CE" | "PE" | "BOTH" | "NONE"
-flg_BSE_OPN_PE_CE_BOTH = "BOTH" # "CE" | "PE" | "BOTH" | "NONE"
+flg_BSE_OPN_PE_CE_BOTH = "NONE" # "CE" | "PE" | "BOTH" | "NONE"
 
 ########################################################
 # Code block to place orders at immediate market opening
@@ -1685,7 +1756,7 @@ if int(datetime.datetime.now().strftime("%H%M")) < 916:
 # -- End - Temp code to sell option at a particular strike at market opening at market price
 
 # print("sys.exit(0)")
-sys.exit(0)
+# sys.exit(0)
 
 
 # cfg.set("tokens","session_id",session_id)
