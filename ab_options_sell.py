@@ -313,6 +313,11 @@ dt_next_exp = ((datetime.date.today()+ relativedelta(months=1)) + relativedelta(
 while str(dt_next_exp) in holiday_dates:
     dt_next_exp = dt_next_exp - datetime.timedelta(days=1)
 
+# -- Get sensex expiry date which falls on Tuesday
+dt_sensex_exp = datetime.date.today() + datetime.timedelta( ((1-datetime.date.today().weekday()) % 7))
+while str(dt_sensex_exp) in holiday_dates:
+    dt_sensex_exp = dt_sensex_exp - datetime.timedelta(days=1)
+
 
 
 
@@ -1075,7 +1080,7 @@ def get_option_tokens(nifty_bank="ALL"):
         iLog(f"ltp_nifty_ATM_CE={ltp_nifty_ATM_CE}, ltp_nifty_ATM_PE={ltp_nifty_ATM_PE}")
         
         if ltp_nifty_ATM_CE<1:
-            print(f"Waiting for 3 more seconds to refresh the LTP")
+            iLog(f"Waiting for 3 more seconds to refresh the LTP")
             time.sleep(3)
             iLog(f"ltp_nifty_ATM_CE={ltp_nifty_ATM_CE}, ltp_nifty_ATM_PE={ltp_nifty_ATM_PE}")
 
@@ -1360,7 +1365,7 @@ def strategy1(user):
     '''
     iLog("In strategy1(): ")
 
-    if dow in (1, 2, 3, 4, 5):   # Wednesday, Thursday
+    if dow in (1, 2, 3, 4):   # Wednesday, Thursday
         pass
     else:
         iLog("strategy1(): Strategy execution is not allowed on this day. Exiting...")
@@ -1541,6 +1546,7 @@ alice.get_contract_master("NFO")
 
 # Get Nifty and BankNifty spot instrument object
 ins_nifty = alice.get_instrument_by_symbol('INDICES', 'NIFTY 50')
+ins_sensex = alice.get_instrument_by_symbol('INDICES', 'SENSEX')
 ins_bank = alice.get_instrument_by_symbol('INDICES', 'NIFTY BANK')
 
 
@@ -1552,10 +1558,31 @@ ins_nifty_fut = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_d
 
 # Get nifty previous close and current price
 nifty_info = alice.get_scrip_info(ins_nifty)
+sensex_info = alice.get_scrip_info(ins_sensex)
 
 
 nifty_atm = round(int(float(nifty_info['LTP'])),-2)
-iLog(f"nifty_atm={nifty_atm}")
+sensex_atm = round(int(float(sensex_info['LTP'])),-2)
+
+
+
+iLog(f"nifty_atm={nifty_atm}, sensex_atm={sensex_atm}")
+
+# exp_dt = cur_expiry_date    # datetime.date(2025, 5, 22)
+# strike = nifty_atm  # 24900
+# qty = 150
+# is_CE = True   # if CE or PE
+# tmp_ins_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=exp_dt.isoformat() , is_fut=False,strike=strike, is_CE=is_CE)
+# iLog( alice.get_scrip_info(tmp_ins_ce)['LTP'])
+
+
+# exp_dt = dt_sensex_exp  # datetime.date(2025, 6, 10)
+# strike = sensex_atm  # 24900
+# qty = 150
+# is_CE = True   # if CE or PE
+# tmp_ins_ce = alice.get_instrument_for_fno(exch="BFO",symbol='SENSEX', expiry_date=exp_dt.isoformat() , is_fut=False,strike=strike, is_CE=is_CE)
+# iLog( alice.get_scrip_info(tmp_ins_ce)['LTP'])
+
 
 
 # lst_nifty_ltp.append(float(alice.get_scrip_info(ins_nifty)['LTP']))
@@ -1574,16 +1601,18 @@ while float(datetime.datetime.now().strftime("%H%M%S.%f")[:-3]) < 91459.900:
 
 
 flg_MKT_OPN_PE_CE_BOTH = "NONE" # "CE" | "PE" | "BOTH" | "NONE"
+flg_BSE_OPN_PE_CE_BOTH = "BOTH" # "CE" | "PE" | "BOTH" | "NONE"
+
 ########################################################
 # Code block to place orders at immediate market opening
 ########################################################
 if int(datetime.datetime.now().strftime("%H%M")) < 916:
     exp_dt = cur_expiry_date    # datetime.date(2025, 5, 22)
     
-    # === CALL
+    # === NIFTY CALL
     if flg_MKT_OPN_PE_CE_BOTH=="CE" or flg_MKT_OPN_PE_CE_BOTH=="BOTH":
         strike = nifty_atm  # 24900
-        qty = 75
+        qty = 150
         is_CE = True   # if CE or PE
         tmp_ins_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=exp_dt.isoformat() , is_fut=False,strike=strike, is_CE=is_CE)
 
@@ -1593,7 +1622,7 @@ if int(datetime.datetime.now().strftime("%H%M")) < 916:
         alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_ce,quantity = qty,order_type = OrderType.Market,
             product_type = ProductType.Normal,price = 0.0,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_CE")
 
-    # === PUT
+    # === NIFTY PUT
     if flg_MKT_OPN_PE_CE_BOTH=="PE" or flg_MKT_OPN_PE_CE_BOTH=="BOTH":
         strike = nifty_atm  # 24500
         qty = 75
@@ -1620,10 +1649,43 @@ if int(datetime.datetime.now().strftime("%H%M")) < 916:
             product_type = ProductType.Normal,price = pe_price,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_PE")
 
 
+
+
+    # === SENSEX CALL
+    if flg_BSE_OPN_PE_CE_BOTH=="CE" or flg_BSE_OPN_PE_CE_BOTH=="BOTH":
+        strike = sensex_atm + 1500  # 82500
+        qty = 40
+        is_CE = True   # if CE or PE
+        tmp_ins_ce = alice.get_instrument_for_fno(exch="BFO",symbol='SENSEX', expiry_date=dt_sensex_exp.isoformat() , is_fut=False,strike=strike, is_CE=is_CE)
+
+        iLog(f"tmp_ins_pe={tmp_ins_ce}, exp_dt={dt_sensex_exp}")
+
+    
+        alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_ce,quantity = qty,order_type = OrderType.Market,
+            product_type = ProductType.Normal,price = 0.0,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_CE")
+
+    # === SENSEX PUT
+    if flg_BSE_OPN_PE_CE_BOTH=="PE" or flg_BSE_OPN_PE_CE_BOTH=="BOTH":
+        strike = sensex_atm - 2000  # 80000
+        qty = 40
+        is_CE = False   # if CE or PE
+    
+        tmp_ins_pe = alice.get_instrument_for_fno(exch="BFO",symbol='SENSEX', expiry_date=dt_sensex_exp.isoformat() , is_fut=False,strike=strike, is_CE=is_CE)
+
+        iLog(f"tmp_ins_ce={tmp_ins_pe}, exp_dt={dt_sensex_exp}")
+
+        alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_pe,quantity = qty,order_type = OrderType.Market,
+            product_type = ProductType.Normal,price = 0.0,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False, order_tag="GM_PE")
+
+
+
+
+
+
 # -- End - Temp code to sell option at a particular strike at market opening at market price
 
 # print("sys.exit(0)")
-# sys.exit(0)
+sys.exit(0)
 
 
 # cfg.set("tokens","session_id",session_id)
@@ -1657,7 +1719,7 @@ subscribe_list = [ins_nifty]
 # print("subscribe_list=",subscribe_list)
 
 alice.subscribe(subscribe_list)
-print("subscribed to subscribe_list")
+iLog("subscribed to subscribe_list")
 
 
 
