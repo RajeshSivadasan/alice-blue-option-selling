@@ -320,6 +320,7 @@ while str(dt_sensex_exp) in holiday_dates:
 
 
 
+if dow>5: dow=5 # If dow is 6 or 7 then set it to 5 (Friday) as no trading on Sat/Sun# and below code will fail
 
 # Get the trading levels and quantity multipliers to be followed for the day .e.g on Friday only trade reversion 3rd or 4th levels to be safe
 lst_ord_lvl_reg =  eval(cfg.get("info", "ord_sizing_lvls_reg"))[dow]
