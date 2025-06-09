@@ -302,7 +302,7 @@ while str(nxt_expiry_date) in holiday_dates:
     nxt_expiry_date = nxt_expiry_date - datetime.timedelta(days=1)
 
 # if today is tue or wed then use next expiry else use current expiry. .isoweekday() 1=Mon,2=Tue,3=Wed, 4=Thu, 5=Fri
-dow = datetime.date.today().isoweekday()    # Also used in placing orders 
+dow =  datetime.date.today().isoweekday()    # Also used in placing orders 
 if dow  in (next_week_expiry_days):         # next_week_expiry_days = 2,3,4 
     expiry_date = nxt_expiry_date
 else:
@@ -1203,7 +1203,7 @@ def place_nifty_option_orders_fixed(user):
     if not flg_tmp_ins_pe: place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
 
 def place_sensex_option_orders_fixed(user):
-    '''This procedure gets sensex CE and PE instrumets where max LTP is <=20 and places Market orders and Limit orders at 50,100,150,200
+    '''This procedure gets sensex CE and PE instrumets where max LTP is <=40 and places Market orders and Limit orders at 50,100,150,200
     250 for both CE and PE.
     '''
 
@@ -1472,9 +1472,9 @@ def strategy1(user):
     iLog("In strategy1(): ")
 
     if dow in (1, 2):   # Monday, Tuesday
-        place_sensex_option_orders_fixed(user['broker_object'])
+        place_sensex_option_orders_fixed(user)
     elif dow in (3, 4):   # Wednesday,Thursday    
-        place_nifty_option_orders_fixed(user['broker_object'])
+        place_nifty_option_orders_fixed(user)
     else:
         iLog("strategy1(): Strategy execution is not allowed on this day. Exiting...")
         return
@@ -1658,7 +1658,9 @@ iLog(f"nifty_atm={nifty_atm}, sensex_atm={sensex_atm}")
 
 
 # lst_nifty_ltp.append(float(alice.get_scrip_info(ins_nifty)['LTP']))
-# place_option_orders_fixed(users[0])
+
+
+# place_sensex_option_orders_fixed(users[0]) 
 # sys.exit(0)
 
 
@@ -1764,7 +1766,7 @@ if int(datetime.datetime.now().strftime("%H%M")) < 916:
 # with open(INI_FILE, 'w') as configfile:
 #     cfg.write(configfile)
 #     configfile.close()
-print(f"Updated session_id at {datetime.datetime.now()}",flush=True)
+# print(f"Updated session_id at {datetime.datetime.now()}",flush=True)
 
 
 
