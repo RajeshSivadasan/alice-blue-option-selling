@@ -50,8 +50,10 @@
 # from ab_lib import *
 from pya3 import *
 import sys
-import datetime
-import time
+# import datetime
+# import time
+
+from datetime import time, datetime, timedelta 
 # import threading
 import configparser
 
@@ -85,7 +87,7 @@ log_to_file = int(cfg.get("tokens", "log_to_file"))
 # Enable logging to file
 # If log folder is not present create it
 if not os.path.exists("./log") : os.makedirs("./log")
-if log_to_file : sys.stdout = sys.stderr =  open(r"./log/ab_options_sell_" + datetime.datetime.now().strftime("%Y%m%d") +".log" , "a") 
+if log_to_file : sys.stdout = sys.stderr =  open(r"./log/ab_options_sell_" + datetime.now().strftime("%Y%m%d") +".log" , "a") 
 
 # sys.stdout = sys.stderr = open(LOG_FILE, "a")
 ###################################
@@ -100,7 +102,7 @@ def iLog(strLogText,LogType=1,sendTeleMsg=False):
     '''
     #0- Data format TBD; symbol, price, qty, SL, Tgt, TSL
     
-    print("{}|{}|{}".format(datetime.datetime.now(),LogType,strLogText),flush=True)
+    print("{}|{}|{}".format(datetime.now(),LogType,strLogText),flush=True)
     
     if sendTeleMsg :
         try:
@@ -124,7 +126,7 @@ BASE_URL = cfg.get("tokens", "BASE_URL")
 # Session id and related parameters tobe removed from the config file and below as well post testing for sometime
 # session_id = cfg.get("tokens", "session_id")
 # session_dt = cfg.get("tokens", "session_dt")
-# if session_dt == datetime.date.today().isoformat():
+# if session_dt == datetime.today().isoformat():
 #     iLog("Existing session will be reused.")
 # else:
 #     session_id = ""
@@ -224,7 +226,7 @@ next_week_expiry_days = list(map(int,cfg.get("info", "next_week_expiry_days").sp
 
 # # Run autologin for the day
 # autologin_date = cfg.get("tokens", "autologin_date")
-# if autologin_date == datetime.date.today().isoformat():
+# if autologin_date == datetime.today().isoformat():
 #     iLog("Ant portal autologin already run for the day.")
 # else:
 #     iLog("Running Ant portal autologin.")
@@ -287,36 +289,36 @@ dict_nifty_opt_selected = {} # for storing the details of existing older option 
 #   Get current/next week/Monthly expiry dates 
 ################################################
 # Standard current and next expiry date
-cur_expiry_date = datetime.date.today() + datetime.timedelta( ((3-datetime.date.today().weekday()) % 7))
-nxt_expiry_date = cur_expiry_date + datetime.timedelta(days=7)  # Next week expiry date
+cur_expiry_date = datetime.today() + timedelta( ((3-datetime.today().weekday()) % 7))
+nxt_expiry_date = cur_expiry_date + timedelta(days=7)  # Next week expiry date
 
 
 holiday_dates = [x.strip() for x in holiday_dates]  # Remove any leading/trailing spaces
 
 # Check if current expiry date is a holiday, if so then reduce 1 day
 while str(cur_expiry_date) in holiday_dates:
-    cur_expiry_date = cur_expiry_date - datetime.timedelta(days=1)
+    cur_expiry_date = cur_expiry_date - timedelta(days=1)
 
 # Check if next expiry date is a holiday, if so then reduce 1 day
 while str(nxt_expiry_date) in holiday_dates:
-    nxt_expiry_date = nxt_expiry_date - datetime.timedelta(days=1)
+    nxt_expiry_date = nxt_expiry_date - timedelta(days=1)
 
 # if today is tue or wed then use next expiry else use current expiry. .isoweekday() 1=Mon,2=Tue,3=Wed, 4=Thu, 5=Fri
-dow =  datetime.date.today().isoweekday()    # Also used in placing orders 
+dow =  datetime.today().isoweekday()    # Also used in placing orders 
 if dow  in (next_week_expiry_days):         # next_week_expiry_days = 2,3,4 
     expiry_date = nxt_expiry_date
 else:
     expiry_date = cur_expiry_date
 
 # Get last thursday of next month for getting Next month Nifty Future Contract  
-dt_next_exp = ((datetime.date.today()+ relativedelta(months=1)) + relativedelta(day=31, weekday=TH(-1)))
+dt_next_exp = ((datetime.today()+ relativedelta(months=1)) + relativedelta(day=31, weekday=TH(-1)))
 while str(dt_next_exp) in holiday_dates:
-    dt_next_exp = dt_next_exp - datetime.timedelta(days=1)
+    dt_next_exp = dt_next_exp - timedelta(days=1)
 
 # -- Get sensex expiry date which falls on Tuesday
-dt_sensex_exp = datetime.date.today() + datetime.timedelta( ((1-datetime.date.today().weekday()) % 7))
+dt_sensex_exp = datetime.today() + timedelta( ((1-datetime.today().weekday()) % 7))
 while str(dt_sensex_exp) in holiday_dates:
-    dt_sensex_exp = dt_sensex_exp - datetime.timedelta(days=1)
+    dt_sensex_exp = dt_sensex_exp - timedelta(days=1)
 
 
 
@@ -767,7 +769,7 @@ def get_option_tokens_fixed_old(nifty_bank="ALL"):
             ins = alice.get_instrument_for_fno(
                 exch="NFO",
                 symbol=symbol,
-                expiry_date=expiry.isoformat() if isinstance(expiry, datetime.date) else expiry,
+                expiry_date=expiry.isoformat() if isinstance(expiry, datetime) else expiry,
                 is_fut=False,
                 strike=strike,
                 is_CE=is_CE
@@ -814,7 +816,7 @@ def get_option_tokens_fixed_old(nifty_bank="ALL"):
 
 def close_all_orders(opt_index="ALL",buy_sell="ALL",ord_open_time=0):
     '''Cancel pending orders. opt_index=ALL/BANKN/NIFTY , buy_sell = ALL/BUY/SELL'''
-    # print(datetime.datetime.now(),"In close_all_orders().",opt_index,flush=True)
+    # print(datetime.now(),"In close_all_orders().",opt_index,flush=True)
 
     # Check orders to clear any non pending orders 
     # check_orders()
@@ -859,7 +861,7 @@ def close_all_orders(opt_index="ALL",buy_sell="ALL",ord_open_time=0):
                 if ord['Status']=='open':
                     iLog( f"ord['Trsym']={ord['Trsym']},ord['Nstordno']={ord['Nstordno']},ord['Status']={ord['Status']},ord['Qty']={ord['Qty']}")
         else:
-            # print(datetime.datetime.now(),"In close_all_orders(). No Pending Orders found.",opt_index,flush=True)
+            # print(datetime.now(),"In close_all_orders(). No Pending Orders found.",opt_index,flush=True)
             iLog("close_all_orders(): No Pending Orders found for "+ str(opt_index))
             return    
         
@@ -872,10 +874,10 @@ def close_all_orders(opt_index="ALL",buy_sell="ALL",ord_open_time=0):
     if opt_index == "ALL":
         # If this proc is called in each interval, Check for order open time and leg indicator is blank for main order
         if ord_open_time > 0 :
-            today = datetime.datetime.now()
+            today = datetime.now()
             
             for c_order in orders:
-                diff =  today - datetime.datetime.fromtimestamp(c_order['order_entry_time'])
+                diff =  today - datetime.fromtimestamp(c_order['order_entry_time'])
                 # print("diff.total_seconds()=",diff.total_seconds(), "c_order['leg_order_indicator']=",c_order['leg_order_indicator'], flush=True)
                 
                 if (c_order['leg_order_indicator'] == '') and  (diff.total_seconds() / 60) > ord_open_time :
@@ -1339,7 +1341,7 @@ def check_positions(user):
         profit_target = round(net_margin_utilised * (user['profit_target_perc']/100))
 
         # Print once every 5 minutes
-        now = datetime.datetime.now()
+        now = datetime.now()
         if (now.minute % 5 == 0) and (now.second < 10):
             iLog(f"{strMsgSuffix} mtm={mtm} profit_target={profit_target} net_margin_utilised={net_margin_utilised} pos_nifty={pos_nifty} pos_bank={pos_bank}")
 
@@ -1369,12 +1371,12 @@ def get_pivot_points(instrument,strike_price):
     iLog(f"In get_pivot_points(): symbol={instrument.name}, strike_price={strike_price}")
     
     
-    # from_date = datetime.date.today()-datetime.timedelta(days=25)
-    # to_date = datetime.date.today()-datetime.timedelta(days=1)
+    # from_date = datetime.today()-timedelta(days=25)
+    # to_date = datetime.today()-timedelta(days=1)
     # iLog(f" from_date={from_date}, to_date={to_date}")
 
-    from_date = datetime.datetime.now() - datetime.timedelta(days=7)
-    to_date = datetime.datetime.now() - datetime.timedelta(days=1)
+    from_date = datetime.now() - timedelta(days=7)
+    to_date = datetime.now() - timedelta(days=1)
 
     try:
         dict_ohlc = pd.DataFrame(alice.get_historical(instrument, from_date, to_date, "D", False)).iloc[-1].to_dict()
@@ -1613,9 +1615,8 @@ alice = users[0]['broker_object']
 
 # Download contracts
 alice.get_contract_master("INDICES")
-alice.get_contract_master("NSE")
 alice.get_contract_master("NFO")
-
+alice.get_contract_master("BFO")
 
 
 # Get Nifty and BankNifty spot instrument object
@@ -1640,7 +1641,7 @@ sensex_atm = round(int(float(sensex_info['LTP'])),-2)
 
 iLog(f"nifty_atm={nifty_atm}, sensex_atm={sensex_atm}")
 
-# exp_dt = cur_expiry_date    # datetime.date(2025, 5, 22)
+# exp_dt = cur_expiry_date    # datetime(2025, 5, 22)
 # strike = nifty_atm  # 24900
 # qty = 150
 # is_CE = True   # if CE or PE
@@ -1648,7 +1649,7 @@ iLog(f"nifty_atm={nifty_atm}, sensex_atm={sensex_atm}")
 # iLog( alice.get_scrip_info(tmp_ins_ce)['LTP'])
 
 
-# exp_dt = dt_sensex_exp  # datetime.date(2025, 6, 10)
+# exp_dt = dt_sensex_exp  # datetime(2025, 6, 10)
 # strike = sensex_atm  # 24900
 # qty = 150
 # is_CE = True   # if CE or PE
@@ -1669,24 +1670,24 @@ iLog(f"nifty_atm={nifty_atm}, sensex_atm={sensex_atm}")
 ################################
 # Wait till start of the market
 ################################
-print(float(datetime.datetime.now().strftime("%H%M%S.%f")[:-3]))
-while float(datetime.datetime.now().strftime("%H%M%S.%f")[:-3]) < 91459.900:
+print(float(datetime.now().strftime("%H%M%S.%f")[:-3]))
+while float(datetime.now().strftime("%H%M%S.%f")[:-3]) < 91459.900:
     pass
 
 
-flg_MKT_OPN_PE_CE_BOTH = "NONE" # "CE" | "PE" | "BOTH" | "NONE"
+flg_MKT_OPN_PE_CE_BOTH = "PE" # "CE" | "PE" | "BOTH" | "NONE"
 flg_BSE_OPN_PE_CE_BOTH = "NONE" # "CE" | "PE" | "BOTH" | "NONE"
 
 ########################################################
 # Code block to place orders at immediate market opening
 ########################################################
-if int(datetime.datetime.now().strftime("%H%M")) < 916:
-    exp_dt = cur_expiry_date    # datetime.date(2025, 5, 22)
+if int(datetime.now().strftime("%H%M")) < 916:
+    exp_dt = cur_expiry_date    # datetime(2025, 5, 22)
     
     # === NIFTY CALL
     if flg_MKT_OPN_PE_CE_BOTH=="CE" or flg_MKT_OPN_PE_CE_BOTH=="BOTH":
         strike = nifty_atm  # 24900
-        qty = 150
+        qty = 75
         is_CE = True   # if CE or PE
         tmp_ins_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=exp_dt.isoformat() , is_fut=False,strike=strike, is_CE=is_CE)
 
@@ -1753,9 +1754,6 @@ if int(datetime.datetime.now().strftime("%H%M")) < 916:
 
 
 
-
-
-
 # -- End - Temp code to sell option at a particular strike at market opening at market price
 
 # print("sys.exit(0)")
@@ -1766,7 +1764,7 @@ if int(datetime.datetime.now().strftime("%H%M")) < 916:
 # with open(INI_FILE, 'w') as configfile:
 #     cfg.write(configfile)
 #     configfile.close()
-# print(f"Updated session_id at {datetime.datetime.now()}",flush=True)
+# print(f"Updated session_id at {datetime.now()}",flush=True)
 
 
 
@@ -1843,7 +1841,7 @@ strategy2_executed=0
 ####            MAIN PROGRAM STARTS HERE ...         ####
 #########################################################  
 # Loop to check for realtime config changes, execute strategies and check positions
-cur_HHMM = int(datetime.datetime.now().strftime("%H%M"))
+cur_HHMM = int(datetime.now().strftime("%H%M"))
 while cur_HHMM > 914 and cur_HHMM<1532: # 1732
     t1 = time.time()
     
@@ -1888,4 +1886,4 @@ while cur_HHMM > 914 and cur_HHMM<1532: # 1732
 
     # 6. Wait for the specified time interval before further processing
     time.sleep(interval_seconds)   # Default 10 Seconds
-    cur_HHMM = int(datetime.datetime.now().strftime("%H%M"))
+    cur_HHMM = int(datetime.now().strftime("%H%M"))
