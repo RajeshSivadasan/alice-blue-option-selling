@@ -51,9 +51,9 @@
 from pya3 import *
 import sys
 # import datetime
-# import time
+import time
 
-from datetime import time, datetime, timedelta 
+from datetime import time as dt_time, datetime, timedelta 
 # import threading
 import configparser
 
@@ -142,7 +142,7 @@ iLog(f"Initialising : {__file__}",sendTeleMsg=True)
 # # Set initial sleep time to match the bank market opening time of 9:00 AM to avoid previous junk values
 # init_sleep_seconds = int(cfg.get("info", "init_sleep_seconds"))
 # iLog(f"Setting up initial sleep time of {init_sleep_seconds} seconds.",sendTeleMsg=True)
-# time.sleep(init_sleep_seconds)
+# sleep(init_sleep_seconds)
 
 # susername = cfg.get("tokens", "uid")
 # spassword = cfg.get("tokens", "pwd")
@@ -219,7 +219,7 @@ next_week_expiry_days = list(map(int,cfg.get("info", "next_week_expiry_days").sp
 #     iLog("reading from url")
 #     cfg.read_string(requests.get(settings_url).text)
 #     iLog(cfg.get("realtime", "mtm_sl"))  
-#     time.sleep(5) 
+#     sleep(5) 
 
 
 # sys.exit(0)
@@ -775,7 +775,7 @@ def get_option_tokens_fixed_old(nifty_bank="ALL"):
                 is_CE=is_CE
             )
             alice.subscribe(ins, LiveFeedType.COMPACT)
-            time.sleep(0.2)
+            sleep(0.2)
             ltp = alice.get_ltp(ins)
             if ltp is not None and ltp < ltp_limit:
                 max_strike = strike
@@ -1077,14 +1077,14 @@ def get_option_tokens(nifty_bank="ALL"):
         else:
             iLog(f"len(lst_bank_ltp)={len(lst_bank_ltp)}")
 
-    time.sleep(2)
+    sleep(2)
     
     if nifty_bank=="NIFTY" or nifty_bank=="ALL":
         iLog(f"ltp_nifty_ATM_CE={ltp_nifty_ATM_CE}, ltp_nifty_ATM_PE={ltp_nifty_ATM_PE}")
         
         if ltp_nifty_ATM_CE<1:
             iLog(f"Waiting for 3 more seconds to refresh the LTP")
-            time.sleep(3)
+            sleep(3)
             iLog(f"ltp_nifty_ATM_CE={ltp_nifty_ATM_CE}, ltp_nifty_ATM_PE={ltp_nifty_ATM_PE}")
 
         dict_nifty_ce["last_price"] = ltp_nifty_ATM_CE
@@ -1512,7 +1512,7 @@ def event_handler_quote_update(message):
         if(feed_message["tk"]=="26000"):
             lst_nifty_ltp.append(float(feed_message['lp'] if 'lp' in feed_message else lst_nifty_ltp[-1]))
     
-    # print(feed_message)
+    print(feed_message,flush=True)
     
     # print(f"token_nifty_ce={token_nifty_ce}")
 
@@ -1712,7 +1712,7 @@ if int(datetime.now().strftime("%H%M")) < 916:
 
 
     # Sleep for 10 seconds and then pick the high value of each instrument and add 30 to it and place a second limit order to CE/PE  
-    time.sleep(10) 
+    sleep(10) 
     if flg_MKT_OPN_PE_CE_BOTH=="CE" or flg_MKT_OPN_PE_CE_BOTH=="BOTH":
         ce_price = float(alice.get_scrip_info(tmp_ins_ce)['LTP'] + 30)
         alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_ce,quantity = qty,order_type = OrderType.Limit,
@@ -1786,8 +1786,19 @@ while(socket_opened==False):
     pass
 
 
+strike = nifty_atm + nifty_strike_ce_offset
+is_CE = True   # if CE or PE
+ins_nifty_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.isoformat() , is_fut=False,strike=strike, is_CE=is_CE)
+
+strike = nifty_atm - nifty_strike_pe_offset
+is_CE = False   # if CE or PE
+ins_nifty_pe = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.isoformat() , is_fut=False,strike=strike, is_CE=is_CE)
+
+print(f"ins_nifty_ce={ins_nifty_ce}, ins_nifty_pe={ins_nifty_pe}",flush=True)
+
+
 # Later add bank nifty support
-subscribe_list = [ins_nifty]
+subscribe_list = [ins_nifty]    #, ins_nifty_ce, ins_nifty_pe]
 # print("subscribe_list=",subscribe_list)
 
 alice.subscribe(subscribe_list)
@@ -1807,8 +1818,8 @@ iLog("subscribed to subscribe_list")
 # print("subscried to crude")
 
 #Temp assignment for CE/PE instrument tokens
-ins_nifty_ce = ins_nifty
-ins_nifty_pe = ins_nifty
+# ins_nifty_ce = ins_nifty
+# ins_nifty_pe = ins_nifty
 ins_nifty_opt = ins_nifty
 
 ins_bank_ce = ins_bank
@@ -1818,11 +1829,11 @@ ins_bank_opt = ins_bank
 # subscribe_ins()
 
 # Get ATM /(+-offset) option tokens for Nifty and BankNifty
-get_option_tokens("NIFTY")
+# get_option_tokens("NIFTY")
 
 
 iLog("Waiting for 5 seconds till websocket refreshes LTPs")
-time.sleep(5)   # Sleep so that tick for the ltp gets accumulated
+sleep(5)   # Sleep so that tick for the ltp gets accumulated
 
 
 iLog("Starting tick processing.",sendTeleMsg=True)
@@ -1885,5 +1896,5 @@ while cur_HHMM > 914 and cur_HHMM<1532: # 1732
         iLog(strMsg,2)
 
     # 6. Wait for the specified time interval before further processing
-    time.sleep(interval_seconds)   # Default 10 Seconds
+    sleep(interval_seconds)   # Default 10 Seconds
     cur_HHMM = int(datetime.now().strftime("%H%M"))
