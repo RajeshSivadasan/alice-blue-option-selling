@@ -52,7 +52,7 @@ from pya3 import *
 import sys
 # import datetime
 import time
-
+from time import sleep
 from datetime import time as dt_time, datetime, timedelta 
 # import threading
 import configparser
@@ -66,7 +66,6 @@ import hashlib
 import base64
 import pyotp
 from dateutil.relativedelta import relativedelta, TH
-
 
 
 # from nsepy import get_history
@@ -174,8 +173,8 @@ bank_limit_price_offset = float(cfg.get("realtime", "bank_limit_price_offset"))
 
 nifty_strike_ce_offset = float(cfg.get("realtime", "nifty_strike_ce_offset"))
 nifty_strike_pe_offset = float(cfg.get("realtime", "nifty_strike_pe_offset"))
-bank_strike_ce_offset = float(cfg.get("realtime", "bank_strike_ce_offset"))
-bank_strike_pe_offset = float(cfg.get("realtime", "bank_strike_pe_offset"))
+sensex_strike_ce_offset = float(cfg.get("realtime", "sensex_strike_ce_offset"))
+sensex_strike_pe_offset = float(cfg.get("realtime", "sensex_strike_pe_offset"))
 
 strategy1_HHMM  = int(cfg.get("realtime", "strategy1_HHMM"))    # If set to 0 , strategy is disabled
 strategy2_HHMM  = int(cfg.get("realtime", "strategy2_HHMM"))    # If set to 0 , strategy is disabled
@@ -458,7 +457,7 @@ def get_realtime_config():
 
     global trade_nifty, trade_banknifty, nifty_limit_price_offset,bank_limit_price_offset\
     ,mtm_sl,mtm_target, cfg, nifty_sl, bank_sl, export_data, sl_buffer, nifty_ord_type, bank_ord_type\
-    ,nifty_strike_ce_offset, nifty_strike_pe_offset, bank_strike_ce_offset, bank_strike_pe_offset\
+    ,nifty_strike_ce_offset, nifty_strike_pe_offset, sensex_strike_ce_offset, sensex_strike_pe_offset\
     ,strategy1_HHMM,strategy2_HHMM
 
     cfg.read(INI_FILE)
@@ -477,8 +476,8 @@ def get_realtime_config():
 
     nifty_strike_ce_offset = float(cfg.get("realtime", "nifty_strike_ce_offset"))
     nifty_strike_pe_offset = float(cfg.get("realtime", "nifty_strike_pe_offset"))
-    bank_strike_ce_offset = float(cfg.get("realtime", "bank_strike_ce_offset"))
-    bank_strike_pe_offset = float(cfg.get("realtime", "bank_strike_pe_offset"))
+    sensex_strike_ce_offset = float(cfg.get("realtime", "sensex_strike_ce_offset"))
+    sensex_strike_pe_offset = float(cfg.get("realtime", "sensex_strike_pe_offset"))
 
     strategy1_HHMM  = int(cfg.get("realtime", "strategy1_HHMM"))    # If set to 0 , strategy is disabled
     strategy2_HHMM  = int(cfg.get("realtime", "strategy2_HHMM")) 
@@ -769,7 +768,7 @@ def get_option_tokens_fixed_old(nifty_bank="ALL"):
             ins = alice.get_instrument_for_fno(
                 exch="NFO",
                 symbol=symbol,
-                expiry_date=expiry.isoformat() if isinstance(expiry, datetime) else expiry,
+                expiry_date=expiry.strftime("%Y-%m-%d")if isinstance(expiry, datetime) else expiry,
                 is_fut=False,
                 strike=strike,
                 is_CE=is_CE
@@ -1018,8 +1017,8 @@ def get_option_tokens(nifty_bank="ALL"):
             strike_ce = float(nifty_atm + nifty_strike_ce_offset)   #OTM Options
             strike_pe = float(nifty_atm - nifty_strike_pe_offset)
 
-            tmp_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=expiry_date.isoformat() , is_fut=False,strike=strike_ce, is_CE=True)
-            tmp_pe = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=expiry_date.isoformat() , is_fut=False,strike=strike_pe, is_CE=False)
+            tmp_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=expiry_date.strftime("%Y-%m-%d"), is_fut=False,strike=strike_ce, is_CE=True)
+            tmp_pe = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=expiry_date.strftime("%Y-%m-%d"), is_fut=False,strike=strike_pe, is_CE=False)
 
             # Reuse if current and new ce/pe is same 
             if ins_nifty_ce!=tmp_ce:
@@ -1053,8 +1052,8 @@ def get_option_tokens(nifty_bank="ALL"):
             bank_atm = round(int(bank50),-2)
             iLog(f"bank_atm={bank_atm}")
 
-            strike_ce = float(bank_atm - bank_strike_ce_offset) #ITM Options
-            strike_pe = float(bank_atm + bank_strike_pe_offset)
+            strike_ce = float(bank_atm - sensex_strike_ce_offset) #ITM Options
+            strike_pe = float(bank_atm + sensex_strike_pe_offset)
 
             ins_bank_ce = alice.get_instrument_for_fno(symbol = 'BANKNIFTY', expiry_date=expiry_date, is_fut=False, strike=strike_ce, is_CE = True)
             ins_bank_pe = alice.get_instrument_for_fno(symbol = 'BANKNIFTY', expiry_date=expiry_date, is_fut=False, strike=strike_pe, is_CE = False)
@@ -1102,7 +1101,7 @@ def place_nifty_option_orders_fixed(user):
     iLog(f"[{user['userid']}] place_nifty_option_orders_fixed():")
 
     
-    strike_step = 100
+    strike_step = 50
 
     nifty_info = alice.get_scrip_info(ins_nifty)
     nifty_atm = round(int(float(nifty_info['LTP'])),-2)
@@ -1115,14 +1114,14 @@ def place_nifty_option_orders_fixed(user):
 
     # --- Get the CE strike with LTP <= 16 ---
     for strike in strikes_ce:
-        tmp_ins_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.isoformat() , is_fut=False,strike=strike, is_CE=True)
+        tmp_ins_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.strftime("%Y-%m-%d"), is_fut=False,strike=strike, is_CE=True)
         if float(alice.get_scrip_info(tmp_ins_ce)['LTP']) <= 16:
             print(alice.get_scrip_info(tmp_ins_ce)['LTP'],flush=True)
             break
 
     # --- Get the PE strike with LTP <= 16 ---
     for strike in strikes_pe:
-        tmp_ins_pe = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.isoformat() , is_fut=False,strike=strike, is_CE=False)
+        tmp_ins_pe = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.strftime("%Y-%m-%d"), is_fut=False,strike=strike, is_CE=False)
         if float(alice.get_scrip_info(tmp_ins_pe)['LTP']) <= 16:
             print(alice.get_scrip_info(tmp_ins_pe)['LTP'],flush=True)
             break
@@ -1131,10 +1130,12 @@ def place_nifty_option_orders_fixed(user):
 
     # 1. Check existing positions and place orders accordingly
     pos = alice.get_netwise_positions()
+    filtered_pos = [item for item in pos if item.get('companyname') == 'NIFTY']
+
     flg_tmp_ins_ce = False
     flg_tmp_ins_pe = False
-    if pos:
-        for p in  pos:
+    if filtered_pos:
+        for p in  filtered_pos:
             # Check if the selected CE and PE instruments are already in the position
             if p['Tsym'] == alice.get_scrip_info(tmp_ins_ce)['TSymbl']:
                 iLog(f"Position already exists for CE: {p['Tsym']}")
@@ -1145,7 +1146,7 @@ def place_nifty_option_orders_fixed(user):
             else :
                 ins_opt =  alice.get_instrument_by_symbol('NFO',p['Tsym'])
                 qty = 75
-                if p['LTP'] <=20 :
+                if float(p['LTP']) <=20.0 :
                     # Place fixed orders for existing positions
                     
                     price = 30.0
@@ -1157,14 +1158,14 @@ def place_nifty_option_orders_fixed(user):
                     price = 90.0
                     place_order(user,ins_opt,qty,price,order_tag="STG1")
 
-                elif p['LTP'] > 20 and p['LTP'] <= 40:
+                elif float(p['LTP']) > 20.0 and float(p['LTP']) <= 40.0:
                     price = 60.0
                     place_order(user,ins_opt,qty,price,order_tag="STG1")
 
                     price = 90.0
                     place_order(user,ins_opt,qty,price,order_tag="STG1")
 
-                elif p['LTP'] > 40 and p['LTP'] <= 80:
+                elif float(p['LTP']) > 40.0 and float(p['LTP']) <= 80.0:
                     price = 90.0
                     place_order(user,ins_opt,qty,price,order_tag="STG1")
 
@@ -1215,7 +1216,7 @@ def place_sensex_option_orders_fixed(user):
     strike_step = 100
 
     sensex_info = alice.get_scrip_info(ins_sensex)
-    sensex_atm = round(int(float(sensex_info['LTP'])),-2)
+    sensex_atm = round(int(float(sensex_info['LTP'])),-2) 
 
 
     # --- Generate strikes ---
@@ -1224,15 +1225,15 @@ def place_sensex_option_orders_fixed(user):
 
     # --- Get the CE strike with LTP <= 50 ---
     for strike in strikes_ce:
-        tmp_ins_ce = alice.get_instrument_for_fno(exch="BFO",symbol='SENSEX', expiry_date=dt_sensex_exp.isoformat() , is_fut=False,strike=strike, is_CE=True)
-        if float(alice.get_scrip_info(tmp_ins_ce)['LTP']) <= 40:
+        tmp_ins_ce = alice.get_instrument_for_fno(exch="BFO",symbol='SENSEX', expiry_date=dt_sensex_exp.strftime("%Y-%m-%d"), is_fut=False,strike=strike, is_CE=True)
+        if float(alice.get_scrip_info(tmp_ins_ce)['LTP']) <= 30:
             print(alice.get_scrip_info(tmp_ins_ce)['LTP'],flush=True)
             break
 
     # --- Get the PE strike with LTP <= 50 ---
     for strike in strikes_pe:
-        tmp_ins_pe = alice.get_instrument_for_fno(exch="BFO",symbol='SENSEX', expiry_date=dt_sensex_exp.isoformat() , is_fut=False,strike=strike, is_CE=False)
-        if float(alice.get_scrip_info(tmp_ins_pe)['LTP']) <= 40:
+        tmp_ins_pe = alice.get_instrument_for_fno(exch="BFO",symbol='SENSEX', expiry_date=dt_sensex_exp.strftime("%Y-%m-%d"), is_fut=False,strike=strike, is_CE=False)
+        if float(alice.get_scrip_info(tmp_ins_pe)['LTP']) <= 30:
             print(alice.get_scrip_info(tmp_ins_pe)['LTP'],flush=True)
             break
 
@@ -1240,10 +1241,11 @@ def place_sensex_option_orders_fixed(user):
 
     # 1. Check existing positions and place orders accordingly
     pos = alice.get_netwise_positions()
+    filtered_pos = [item for item in pos if item.get('companyname') == 'SENSEX']
     flg_tmp_ins_ce = False
     flg_tmp_ins_pe = False
-    if pos:
-        for p in  pos:
+    if filtered_pos:
+        for p in  filtered_pos:
             # Check if the selected CE and PE instruments are already in the position
             if p['Tsym'] == alice.get_scrip_info(tmp_ins_ce)['TSymbl']:
                 iLog(f"Position already exists for CE: {p['Tsym']}")
@@ -1254,7 +1256,7 @@ def place_sensex_option_orders_fixed(user):
             else :
                 ins_opt =  alice.get_instrument_by_symbol('BFO',p['Tsym'])
                 qty = 20
-                if p['LTP'] <=40 :
+                if float(p['LTP']) <= 40.00 :
                     # Place fixed orders for existing positions
                     
                     price = 50.0
@@ -1266,14 +1268,14 @@ def place_sensex_option_orders_fixed(user):
                     price = 150.0
                     place_order(user,ins_opt,qty,price,order_tag="STG1")
 
-                elif p['LTP'] > 50 and p['LTP'] <= 100:
+                elif float(p['LTP']) > 50.00 and float(p['LTP']) <= 100.00:
                     price = 100.0
                     place_order(user,ins_opt,qty,price,order_tag="STG1")
 
                     price = 150.0
                     place_order(user,ins_opt,qty,price,order_tag="STG1")
 
-                elif p['LTP'] > 100 and p['LTP'] <= 150:
+                elif float(p['LTP']) > 100.00 and float(p['LTP']) <= 150.00:
                     price = 150.0
                     place_order(user,ins_opt,qty,price,order_tag="STG1")
 
@@ -1332,7 +1334,7 @@ def check_positions(user):
         df_pos['mtm'] = df_pos.MtoM.str.replace(",","").astype(float)
         mtm = sum(df_pos['mtm'])
         pos_nifty = sum(pd.to_numeric(df_pos[df_pos.Symbol=='NIFTY'].Netqty))
-        pos_bank = sum(pd.to_numeric(df_pos[df_pos.Symbol=='BANKNIFTY'].Netqty))
+        pos_sensex = sum(pd.to_numeric(df_pos[df_pos.Symbol=='SENSEX'].Netqty))
 
         pos_total = sum(abs(df_pos.Netqty.astype(int)))
 
@@ -1343,7 +1345,9 @@ def check_positions(user):
         # Print once every 5 minutes
         now = datetime.now()
         if (now.minute % 5 == 0) and (now.second < 10):
-            iLog(f"{strMsgSuffix} mtm={mtm} profit_target={profit_target} net_margin_utilised={net_margin_utilised} pos_nifty={pos_nifty} pos_bank={pos_bank}")
+            net_pnl = sum(float(pos1['unrealisedprofitloss']) for pos1 in pos)
+
+            iLog(f"{strMsgSuffix} net_unrealised={net_pnl} mtm={mtm} profit_target={profit_target} net_margin_utilised={net_margin_utilised} pos_nifty={pos_nifty} pos_sensex={pos_sensex}")
 
         # Aliceblue.squareoff_positions()
         if mtm > profit_target:
@@ -1496,67 +1500,72 @@ def strategy2(user):
 ########################################################################
 #       Alice Blue Socket Events
 ########################################################################
-def event_handler_quote_update(message):
-    global dict_ltp, lst_bank_ltp,ltp_bank_ATM_CE,ltp_bank_ATM_PE, lst_nifty_ltp, ltp_nifty_ATM_CE, ltp_nifty_ATM_PE
+# def event_handler_quote_update(message):
+#     global dict_ltp, lst_bank_ltp,ltp_bank_ATM_CE,ltp_bank_ATM_PE, lst_nifty_ltp, ltp_nifty_ATM_CE, ltp_nifty_ATM_PE
 
 
-    feed_message = json.loads(message)
-    if feed_message["t"]=='tf': 
-        if(feed_message["tk"]==str(token_nifty_ce)):
-            ltp_nifty_ATM_CE = float(feed_message['lp'] if 'lp' in feed_message else ltp_nifty_ATM_CE)
+#     feed_message = json.loads(message)
+#     if feed_message["t"]=='tf': 
+#         if(feed_message["tk"]==str(token_nifty_ce)):
+#             ltp_nifty_ATM_CE = float(feed_message['lp'] if 'lp' in feed_message else ltp_nifty_ATM_CE)
 
-        if(feed_message["tk"]==str(token_nifty_pe)):
-            ltp_nifty_ATM_PE = float(feed_message['lp'] if 'lp' in feed_message else ltp_nifty_ATM_PE)
+#         if(feed_message["tk"]==str(token_nifty_pe)):
+#             ltp_nifty_ATM_PE = float(feed_message['lp'] if 'lp' in feed_message else ltp_nifty_ATM_PE)
 
-        #For Nifty 50,
-        if(feed_message["tk"]=="26000"):
-            lst_nifty_ltp.append(float(feed_message['lp'] if 'lp' in feed_message else lst_nifty_ltp[-1]))
+#         #For Nifty 50,
+#         if(feed_message["tk"]=="26000"):
+#             lst_nifty_ltp.append(float(feed_message['lp'] if 'lp' in feed_message else lst_nifty_ltp[-1]))
+        
+#         # if 'lp' in feed_message:
+#         #     dict_ltp.update({feed_message['tk']:float(feed_message['lp'])})
     
-    print(feed_message,flush=True)
+#     # print(feed_message,flush=True)
     
-    # print(f"token_nifty_ce={token_nifty_ce}")
-
-        # ltp_nifty_ATM_CE = float(feed_message["lp"])
-        # iLog(f"ltp_nifty_ATM_CE={ltp_nifty_ATM_CE}")
-
-    # if(message['token']==token_nifty_ce):
-    #     ltp_nifty_ATM_CE=message['ltp']
 
 
-    # if(message['token']==token_nifty_pe):
-    #     ltp_nifty_ATM_PE=message['ltp']
+#     # print(f"token_nifty_ce={token_nifty_ce}")
 
-    # if(message['token']==token_bank_ce):
-    #     ltp_bank_ATM_CE=message['ltp']
+#         # ltp_nifty_ATM_CE = float(feed_message["lp"])
+#         # iLog(f"ltp_nifty_ATM_CE={ltp_nifty_ATM_CE}")
 
-    # if(message['token']==token_bank_pe):
-    #     ltp_bank_ATM_PE=message['ltp']
+#     # if(message['token']==token_nifty_ce):
+#     #     ltp_nifty_ATM_CE=message['ltp']
 
 
-            # print("len(lst_nifty_ltp)=",len(lst_nifty_ltp))
-            # print(lst_nifty_ltp[-1])
-            # lst_nifty_ltp.append(float(feed_message["lp"]))
-            # print(lst_nifty_ltp)
+#     # if(message['token']==token_nifty_pe):
+#     #     ltp_nifty_ATM_PE=message['ltp']
 
-    # #For BankNifty 50,
-    # if(message["tk"]=="26009"):
-    #     lst_bank_ltp.append(message["lp"])
+#     # if(message['token']==token_bank_ce):
+#     #     ltp_bank_ATM_CE=message['ltp']
 
-    # #Update the ltp for all the tokens
-    # dict_ltp.update({message['token']:message['ltp']})
+#     # if(message['token']==token_bank_pe):
+#     #     ltp_bank_ATM_PE=message['ltp']
 
-def open_callback():
-    global socket_opened
-    socket_opened = True
-    iLog("In open_callback().")
-    # Call the instrument subscription
-    # subscribe_ins()   # Can move to main program in case of tick discontinuation issue is not noticed
+
+#             # print("len(lst_nifty_ltp)=",len(lst_nifty_ltp))
+#             # print(lst_nifty_ltp[-1])
+#             # lst_nifty_ltp.append(float(feed_message["lp"]))
+#             # print(lst_nifty_ltp)
+
+#     # #For BankNifty 50,
+#     # if(message["tk"]=="26009"):
+#     #     lst_bank_ltp.append(message["lp"])
+
+#     # #Update the ltp for all the tokens
+#     # dict_ltp.update({message['token']:message['ltp']})
+
+# def open_callback():
+#     global socket_opened
+#     socket_opened = True
+#     iLog("In open_callback().")
+#     # Call the instrument subscription
+#     # subscribe_ins()   # Can move to main program in case of tick discontinuation issue is not noticed
     
-def error_callback(error):
-    iLog(f"In error_callback().error={error}",3)
+# def error_callback(error):
+#     iLog(f"In error_callback().error={error}",3)
   
-def close_callback():
-    iLog("In close_callback().")
+# def close_callback():
+#     iLog("In close_callback().")
 
 
 
@@ -1626,7 +1635,7 @@ ins_bank = alice.get_instrument_by_symbol('INDICES', 'NIFTY BANK')
 
 
 
-ins_nifty_fut = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=dt_next_exp.isoformat(), is_fut=True,strike=None, is_CE=False)
+ins_nifty_fut = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=dt_next_exp.strftime("%Y-%m-%d"), is_fut=True,strike=None, is_CE=False)
 
 
 # previous close ??????????????????????????????????????????????????????
@@ -1645,15 +1654,17 @@ iLog(f"nifty_atm={nifty_atm}, sensex_atm={sensex_atm}")
 # strike = nifty_atm  # 24900
 # qty = 150
 # is_CE = True   # if CE or PE
-# tmp_ins_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=exp_dt.isoformat() , is_fut=False,strike=strike, is_CE=is_CE)
+# tmp_ins_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=exp_dt.strftime("%Y-%m-%d"), is_fut=False,strike=strike, is_CE=is_CE)
 # iLog( alice.get_scrip_info(tmp_ins_ce)['LTP'])
+
+
 
 
 # exp_dt = dt_sensex_exp  # datetime(2025, 6, 10)
 # strike = sensex_atm  # 24900
 # qty = 150
 # is_CE = True   # if CE or PE
-# tmp_ins_ce = alice.get_instrument_for_fno(exch="BFO",symbol='SENSEX', expiry_date=exp_dt.isoformat() , is_fut=False,strike=strike, is_CE=is_CE)
+# tmp_ins_ce = alice.get_instrument_for_fno(exch="BFO",symbol='SENSEX', expiry_date=exp_dt.strftime("%Y-%m-%d"), is_fut=False,strike=strike, is_CE=is_CE)
 # iLog( alice.get_scrip_info(tmp_ins_ce)['LTP'])
 
 
@@ -1662,6 +1673,7 @@ iLog(f"nifty_atm={nifty_atm}, sensex_atm={sensex_atm}")
 
 
 # place_sensex_option_orders_fixed(users[0]) 
+# place_nifty_option_orders_fixed(users[0])
 # sys.exit(0)
 
 
@@ -1675,7 +1687,7 @@ while float(datetime.now().strftime("%H%M%S.%f")[:-3]) < 91459.900:
     pass
 
 
-flg_MKT_OPN_PE_CE_BOTH = "PE" # "CE" | "PE" | "BOTH" | "NONE"
+flg_MKT_OPN_PE_CE_BOTH = "NONE" # "CE" | "PE" | "BOTH" | "NONE"
 flg_BSE_OPN_PE_CE_BOTH = "NONE" # "CE" | "PE" | "BOTH" | "NONE"
 
 ########################################################
@@ -1689,7 +1701,7 @@ if int(datetime.now().strftime("%H%M")) < 916:
         strike = nifty_atm  # 24900
         qty = 75
         is_CE = True   # if CE or PE
-        tmp_ins_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=exp_dt.isoformat() , is_fut=False,strike=strike, is_CE=is_CE)
+        tmp_ins_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=exp_dt.strftime("%Y-%m-%d"), is_fut=False,strike=strike, is_CE=is_CE)
 
         iLog(f"tmp_ins_pe={tmp_ins_ce}")
 
@@ -1703,7 +1715,7 @@ if int(datetime.now().strftime("%H%M")) < 916:
         qty = 75
         is_CE = False   # if CE or PE
     
-        tmp_ins_pe = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=exp_dt.isoformat() , is_fut=False,strike=strike, is_CE=is_CE)
+        tmp_ins_pe = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=exp_dt.strftime("%Y-%m-%d"), is_fut=False,strike=strike, is_CE=is_CE)
 
         iLog(f"tmp_ins_ce={tmp_ins_pe}, exp_dt={exp_dt}")
 
@@ -1731,7 +1743,7 @@ if int(datetime.now().strftime("%H%M")) < 916:
         strike = sensex_atm + 1500  # 82500
         qty = 40
         is_CE = True   # if CE or PE
-        tmp_ins_ce = alice.get_instrument_for_fno(exch="BFO",symbol='SENSEX', expiry_date=dt_sensex_exp.isoformat() , is_fut=False,strike=strike, is_CE=is_CE)
+        tmp_ins_ce = alice.get_instrument_for_fno(exch="BFO",symbol='SENSEX', expiry_date=dt_sensex_exp.strftime("%Y-%m-%d"), is_fut=False,strike=strike, is_CE=is_CE)
 
         iLog(f"tmp_ins_pe={tmp_ins_ce}, exp_dt={dt_sensex_exp}")
 
@@ -1745,7 +1757,7 @@ if int(datetime.now().strftime("%H%M")) < 916:
         qty = 40
         is_CE = False   # if CE or PE
     
-        tmp_ins_pe = alice.get_instrument_for_fno(exch="BFO",symbol='SENSEX', expiry_date=dt_sensex_exp.isoformat() , is_fut=False,strike=strike, is_CE=is_CE)
+        tmp_ins_pe = alice.get_instrument_for_fno(exch="BFO",symbol='SENSEX', expiry_date=dt_sensex_exp.strftime("%Y-%m-%d"), is_fut=False,strike=strike, is_CE=is_CE)
 
         iLog(f"tmp_ins_ce={tmp_ins_pe}, exp_dt={dt_sensex_exp}")
 
@@ -1774,35 +1786,65 @@ if int(datetime.now().strftime("%H%M")) < 916:
 # iLog(f"ins_bank={ins_bank}")
 
 
-# Start Websocket
-iLog("Starting Websocket.",sendTeleMsg=True)
+# # Start Websocket
+# iLog("Starting Websocket.",sendTeleMsg=True)
 
-alice.start_websocket(socket_open_callback=open_callback, socket_close_callback=close_callback,
-        socket_error_callback=error_callback, subscription_callback=event_handler_quote_update, run_in_background=True)
-
-
-# Check with Websocket open status
-while(socket_opened==False):
-    pass
+# alice.start_websocket(socket_open_callback=open_callback, socket_close_callback=close_callback,
+#         socket_error_callback=error_callback, subscription_callback=event_handler_quote_update, run_in_background=True)
 
 
-strike = nifty_atm + nifty_strike_ce_offset
-is_CE = True   # if CE or PE
-ins_nifty_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.isoformat() , is_fut=False,strike=strike, is_CE=is_CE)
+# # Check with Websocket open status
+# while(socket_opened==False):
+#     pass
 
-strike = nifty_atm - nifty_strike_pe_offset
-is_CE = False   # if CE or PE
-ins_nifty_pe = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.isoformat() , is_fut=False,strike=strike, is_CE=is_CE)
 
-print(f"ins_nifty_ce={ins_nifty_ce}, ins_nifty_pe={ins_nifty_pe}",flush=True)
+
+# subscribe_list = [ins_nifty]    #, ins_nifty_ce, ins_nifty_pe]
+
+
+# strike = nifty_atm + nifty_strike_ce_offset
+# is_CE = True   # if CE or PE
+# ins_nifty_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.strftime("%Y-%m-%d"), is_fut=False,strike=strike, is_CE=is_CE)
+# print(f"ins_nifty_ce={ins_nifty_ce}",flush=True)
+
+# # For Nifty
+# for i in range(1, 5):
+#     strike += 50 
+#     ins_nifty_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.strftime("%Y-%m-%d"), is_fut=False,strike=strike, is_CE=is_CE)
+#     print(f"ins_nifty_ce={ins_nifty_ce}",flush=True)
+#     subscribe_list.append(ins_nifty_ce)
+
+
+
+
+# exp_dt = dt_sensex_exp  # datetime(2025, 6, 10)
+# strike = sensex_atm  + sensex_strike_ce_offset
+# qty = 20
+# is_CE = True   # if CE or PE
+# for i in range(1, 10):
+#     strike += 100 
+#     tmp_ins_ce = alice.get_instrument_for_fno(exch="BFO",symbol='SENSEX', expiry_date=exp_dt.strftime("%Y-%m-%d"), is_fut=False,strike=strike, is_CE=is_CE)
+#     iLog( alice.get_scrip_info(tmp_ins_ce)['LTP'])
+#     print(f"tmp_ins_ce={tmp_ins_ce}",flush=True)
+#     subscribe_list.append(tmp_ins_ce)
+
+
+
+
+
+# strike = nifty_atm - nifty_strike_pe_offset
+# is_CE = False   # if CE or PE
+# ins_nifty_pe = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.strftime("%Y-%m-%d"), is_fut=False,strike=strike, is_CE=is_CE)
+
+# print(f"ins_nifty_ce={ins_nifty_ce}, ins_nifty_pe={ins_nifty_pe}",flush=True)
 
 
 # Later add bank nifty support
-subscribe_list = [ins_nifty]    #, ins_nifty_ce, ins_nifty_pe]
+# subscribe_list = [ins_nifty]    #, ins_nifty_ce, ins_nifty_pe]
 # print("subscribe_list=",subscribe_list)
 
-alice.subscribe(subscribe_list)
-iLog("subscribed to subscribe_list")
+# alice.subscribe(subscribe_list)
+# iLog("subscribed to subscribe_list")
 
 
 
@@ -1814,8 +1856,6 @@ iLog("subscribed to subscribe_list")
 
 # sys.exit(0)
 
-# alice.subscribe(ins_crude, LiveFeedType.TICK_DATA)
-# print("subscried to crude")
 
 #Temp assignment for CE/PE instrument tokens
 # ins_nifty_ce = ins_nifty
@@ -1832,11 +1872,11 @@ ins_bank_opt = ins_bank
 # get_option_tokens("NIFTY")
 
 
-iLog("Waiting for 5 seconds till websocket refreshes LTPs")
-sleep(5)   # Sleep so that tick for the ltp gets accumulated
+# iLog("Waiting for 5 seconds till websocket refreshes LTPs")
+# sleep(5)   # Sleep so that tick for the ltp gets accumulated
 
 
-iLog("Starting tick processing.",sendTeleMsg=True)
+# iLog("Starting tick processing.",sendTeleMsg=True)
 
 strategy1_executed=0
 strategy2_executed=0
@@ -1845,7 +1885,7 @@ strategy2_executed=0
 # Test Area
 # get_realtime_config()
 # strategy1(users[0])
-# place_option_orders_fixed(users[0])
+
 # sys.exit(0)
 
 #########################################################
@@ -1898,3 +1938,4 @@ while cur_HHMM > 914 and cur_HHMM<1532: # 1732
     # 6. Wait for the specified time interval before further processing
     sleep(interval_seconds)   # Default 10 Seconds
     cur_HHMM = int(datetime.now().strftime("%H%M"))
+    # print(f"dict_ltp={dict_ltp}",flush=True)
