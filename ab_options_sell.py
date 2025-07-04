@@ -9,7 +9,7 @@
 # pip install --upgrade google-api-python-client google-auth-httplib2 google-auth-oauthlib
 # https://developers.google.com/sheets/api/quickstart/python
 
-
+# 1
 
 # bg process
 # 2020-09-01 09:59:18.152555|1|chat_id=670221062 text=Cmd ls
@@ -1647,7 +1647,7 @@ sensex_info = alice.get_scrip_info(ins_sensex)
 sensex_atm = round(int(float(sensex_info['LTP'])),-2)
 
 
-iLog(f"nifty_atm={nifty_atm}, sensex_atm={sensex_atm}")
+iLog(f"nifty_atm={nifty_atm} \nsensex_atm={sensex_atm} \nins_nifty_fut={ins_nifty_fut}")
 
 # exp_dt = cur_expiry_date    # datetime(2025, 5, 22)
 # strike = nifty_atm  # 24900
@@ -1686,11 +1686,11 @@ while float(datetime.now().strftime("%H%M%S.%f")[:-3]) < 91459.900:
     pass
 
 
-flg_MKT_OPN_PE_CE_BOTH = "NONE" # "CE" | "PE" | "BOTH" | "NONE"
+flg_MKT_OPN_PE_CE_BOTH = "BOTH" # "CE" | "PE" | "BOTH" | "NONE"
 flg_BSE_OPN_PE_CE_BOTH = "NONE" # "CE" | "PE" | "BOTH" | "NONE"
 
-qty_nifty_ce = 75
-qty_nifty_pe = 75
+qty_nifty_ce = 150
+qty_nifty_pe = 150
 
 qty_nifty_ce2 = 75
 qty_nifty_pe2 = 75
@@ -1705,7 +1705,7 @@ if int(datetime.now().strftime("%H%M")) < 916:
     
     # === NIFTY CALL
     if flg_MKT_OPN_PE_CE_BOTH=="CE" or flg_MKT_OPN_PE_CE_BOTH=="BOTH":
-        strike = nifty_atm  # 24900
+        strike = nifty_atm + 100 # 24900
         qty = qty_nifty_ce
         is_CE = True   # if CE or PE
         tmp_ins_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=exp_dt.strftime("%Y-%m-%d"), is_fut=False,strike=strike, is_CE=is_CE)
@@ -1718,7 +1718,7 @@ if int(datetime.now().strftime("%H%M")) < 916:
 
     # === NIFTY PUT
     if flg_MKT_OPN_PE_CE_BOTH=="PE" or flg_MKT_OPN_PE_CE_BOTH=="BOTH":
-        strike = nifty_atm   # 24500
+        strike = nifty_atm  - 100 # 24500
         qty = qty_nifty_pe
         is_CE = False   # if CE or PE
     
@@ -1730,15 +1730,15 @@ if int(datetime.now().strftime("%H%M")) < 916:
             product_type = ProductType.Normal,price = 0.0,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False, order_tag="GM_PE")
 
 
-    # Followup nifty orders at limit price
-    if flg_MKT_OPN_PE_CE_BOTH=="CE" or flg_MKT_OPN_PE_CE_BOTH=="BOTH":
+    # Followup nifty orders at limit price; get_scrip_info() LTP failing
+    if flg_MKT_OPN_PE_CE_BOTH=="NCE" or flg_MKT_OPN_PE_CE_BOTH=="NBOTH":
         sleep(10)   # Wait for 10 seconds before placing the next order
         qty = qty_nifty_ce2
         ce_price = float(alice.get_scrip_info(tmp_ins_ce)['LTP'] + 50)
         alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_ce,quantity = qty,order_type = OrderType.Limit,
             product_type = ProductType.Normal,price = ce_price,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_CE")
 
-    if flg_MKT_OPN_PE_CE_BOTH=="PE" or flg_MKT_OPN_PE_CE_BOTH=="BOTH":
+    if flg_MKT_OPN_PE_CE_BOTH=="NPE" or flg_MKT_OPN_PE_CE_BOTH=="NBOTH":
         sleep(10)
         qty = qty_nifty_pe2
         pe_price = float(alice.get_scrip_info(tmp_ins_pe)['LTP'] + 100)
@@ -1949,3 +1949,5 @@ while cur_HHMM > 914 and cur_HHMM<1532: # 1732
     sleep(interval_seconds)   # Default 10 Seconds
     cur_HHMM = int(datetime.now().strftime("%H%M"))
     # print(f"dict_ltp={dict_ltp}",flush=True)
+
+iLog(f"Exiting main program",1 ,True)
