@@ -9,7 +9,7 @@
 # pip install --upgrade google-api-python-client google-auth-httplib2 google-auth-oauthlib
 # https://developers.google.com/sheets/api/quickstart/python
 
-# 1
+# 2
 
 # bg process
 # 2020-09-01 09:59:18.152555|1|chat_id=670221062 text=Cmd ls
@@ -181,6 +181,8 @@ strategy2_HHMM  = int(cfg.get("realtime", "strategy2_HHMM"))    # If set to 0 , 
 
 
 
+
+
 # nifty_lot_size = int(cfg.get("info", "nifty_lot_size"))
 
 #List NSE holidays, hence reduce 1 day to get expiry date if it falls on thurshday 
@@ -330,6 +332,9 @@ lst_qty_multiplier_reg = eval(cfg.get("info", "qty_multiplier_per_lvls_reg"))[do
 lst_qty_multiplier_mr = eval(cfg.get("info", "qty_multiplier_per_lvls_mr"))[dow]
 
 nifty_avg_margin_req_per_lot =  int(cfg.get("info", "nifty_avg_margin_req_per_lot"))
+flg_NSE_OPN_PE_CE_BOTH = cfg.get("info", "flg_NSE_OPN_PE_CE_BOTH")
+flg_BSE_OPN_PE_CE_BOTH = cfg.get("info", "flg_BSE_OPN_PE_CE_BOTH")
+
 # option_sell_type = cfg.get("info", "option_sell_type")  # CE/PE/BOTH
 # nifty_opt_base_lot = int(cfg.get("info", "nifty_opt_base_lot"))
 
@@ -480,6 +485,7 @@ def get_realtime_config():
 
     strategy1_HHMM  = int(cfg.get("realtime", "strategy1_HHMM"))    # If set to 0 , strategy is disabled
     strategy2_HHMM  = int(cfg.get("realtime", "strategy2_HHMM")) 
+
 
 def place_order(user, ins_scrip, qty, limit_price=0.0, buy_sell = TransactionType.Sell, order_type = OrderType.Limit, order_tag = "ab_options_sell"):
     '''
@@ -1686,7 +1692,7 @@ while float(datetime.now().strftime("%H%M%S.%f")[:-3]) < 91459.900:
     pass
 
 
-flg_MKT_OPN_PE_CE_BOTH = "BOTH" # "CE" | "PE" | "BOTH" | "NONE"
+flg_NSE_OPN_PE_CE_BOTH = "BOTH" # "CE" | "PE" | "BOTH" | "NONE"
 flg_BSE_OPN_PE_CE_BOTH = "NONE" # "CE" | "PE" | "BOTH" | "NONE"
 
 qty_nifty_ce = 150
@@ -1704,7 +1710,7 @@ if int(datetime.now().strftime("%H%M")) < 916:
     exp_dt = cur_expiry_date    # datetime(2025, 5, 22)
     
     # === NIFTY CALL
-    if flg_MKT_OPN_PE_CE_BOTH=="CE" or flg_MKT_OPN_PE_CE_BOTH=="BOTH":
+    if flg_NSE_OPN_PE_CE_BOTH=="CE" or flg_NSE_OPN_PE_CE_BOTH=="BOTH":
         strike = nifty_atm + 100 # 24900
         qty = qty_nifty_ce
         is_CE = True   # if CE or PE
@@ -1717,7 +1723,7 @@ if int(datetime.now().strftime("%H%M")) < 916:
             product_type = ProductType.Normal,price = 0.0,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_CE")
 
     # === NIFTY PUT
-    if flg_MKT_OPN_PE_CE_BOTH=="PE" or flg_MKT_OPN_PE_CE_BOTH=="BOTH":
+    if flg_NSE_OPN_PE_CE_BOTH=="PE" or flg_NSE_OPN_PE_CE_BOTH=="BOTH":
         strike = nifty_atm  - 100 # 24500
         qty = qty_nifty_pe
         is_CE = False   # if CE or PE
@@ -1731,14 +1737,14 @@ if int(datetime.now().strftime("%H%M")) < 916:
 
 
     # Followup nifty orders at limit price; get_scrip_info() LTP failing
-    if flg_MKT_OPN_PE_CE_BOTH=="NCE" or flg_MKT_OPN_PE_CE_BOTH=="NBOTH":
+    if flg_NSE_OPN_PE_CE_BOTH=="NCE" or flg_NSE_OPN_PE_CE_BOTH=="NBOTH":
         sleep(10)   # Wait for 10 seconds before placing the next order
         qty = qty_nifty_ce2
         ce_price = float(alice.get_scrip_info(tmp_ins_ce)['LTP'] + 50)
         alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_ce,quantity = qty,order_type = OrderType.Limit,
             product_type = ProductType.Normal,price = ce_price,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_CE")
 
-    if flg_MKT_OPN_PE_CE_BOTH=="NPE" or flg_MKT_OPN_PE_CE_BOTH=="NBOTH":
+    if flg_NSE_OPN_PE_CE_BOTH=="NPE" or flg_NSE_OPN_PE_CE_BOTH=="NBOTH":
         sleep(10)
         qty = qty_nifty_pe2
         pe_price = float(alice.get_scrip_info(tmp_ins_pe)['LTP'] + 100)
