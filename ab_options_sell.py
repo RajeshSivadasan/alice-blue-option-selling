@@ -9,7 +9,7 @@
 # pip install --upgrade google-api-python-client google-auth-httplib2 google-auth-oauthlib
 # https://developers.google.com/sheets/api/quickstart/python
 
-# 2
+# 3
 
 # bg process
 # 2020-09-01 09:59:18.152555|1|chat_id=670221062 text=Cmd ls
@@ -332,8 +332,23 @@ lst_qty_multiplier_reg = eval(cfg.get("info", "qty_multiplier_per_lvls_reg"))[do
 lst_qty_multiplier_mr = eval(cfg.get("info", "qty_multiplier_per_lvls_mr"))[dow]
 
 nifty_avg_margin_req_per_lot =  int(cfg.get("info", "nifty_avg_margin_req_per_lot"))
-flg_NSE_OPN_PE_CE_BOTH = cfg.get("info", "flg_NSE_OPN_PE_CE_BOTH")
-flg_BSE_OPN_PE_CE_BOTH = cfg.get("info", "flg_BSE_OPN_PE_CE_BOTH")
+
+# -- Market open order execution flags
+flg_NSE_OPN_PE_CE_BOTH = cfg.get("info", "flg_NSE_OPN_PE_CE_BOTH")  # "CE" | "PE" | "BOTH" | "NONE"
+flg_BSE_OPN_PE_CE_BOTH = cfg.get("info", "flg_BSE_OPN_PE_CE_BOTH")  # "CE" | "PE" | "BOTH" | "NONE"
+
+qty_nifty_ce = int(cfg.get("info", "qty_nifty_ce"))
+qty_nifty_pe = int(cfg.get("info", "qty_nifty_pe"))
+
+qty_nifty_ce2 = int(cfg.get("info", "qty_nifty_ce2"))
+qty_nifty_pe2 = int(cfg.get("info", "qty_nifty_pe2"))
+
+qty_sensex_ce = int(cfg.get("info", "qty_sensex_ce"))
+qty_sensex_pe = int(cfg.get("info", "qty_sensex_pe"))
+
+
+
+
 
 # option_sell_type = cfg.get("info", "option_sell_type")  # CE/PE/BOTH
 # nifty_opt_base_lot = int(cfg.get("info", "nifty_opt_base_lot"))
@@ -1692,17 +1707,7 @@ while float(datetime.now().strftime("%H%M%S.%f")[:-3]) < 91459.900:
     pass
 
 
-flg_NSE_OPN_PE_CE_BOTH = "BOTH" # "CE" | "PE" | "BOTH" | "NONE"
-flg_BSE_OPN_PE_CE_BOTH = "NONE" # "CE" | "PE" | "BOTH" | "NONE"
 
-qty_nifty_ce = 150
-qty_nifty_pe = 150
-
-qty_nifty_ce2 = 75
-qty_nifty_pe2 = 75
-
-qty_sensex_ce = 20
-qty_sensex_pe = 20
 ########################################################
 # Code block to place orders at immediate market opening
 ########################################################
