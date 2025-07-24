@@ -512,7 +512,6 @@ def get_realtime_config():
     strategy1_HHMM  = int(cfg.get("realtime", "strategy1_HHMM"))    # If set to 0 , strategy is disabled
     strategy2_HHMM  = int(cfg.get("realtime", "strategy2_HHMM")) 
 
-
 def place_order(user, ins_scrip, qty, limit_price=0.0, buy_sell = TransactionType.Sell, order_type = OrderType.Limit, order_tag = "ab_options_sell"):
     '''
     Used for placing orders for a particular user. Default is sell limit order 
@@ -661,7 +660,6 @@ def place_option_orders_pivot(user,flgMeanReversion,dict_opt):
 
         else:
             iLog(f"[{user['userid']}] place_option_orders_pivot(): flgMeanReversion=False, Unable to find pivots and place order for {ins_opt}")
-
 
 def place_option_orders_fixed_tmp(user,flgMeanReversion,dict_opt):
     '''
@@ -1346,7 +1344,6 @@ def place_sensex_option_orders_fixed(user):
     if not flg_tmp_ins_ce: place_order(user,tmp_ins_ce,qty,price,order_tag="STG1")
     if not flg_tmp_ins_pe: place_order(user,tmp_ins_pe,qty,price,order_tag="STG1")
 
-
 def check_positions(user):
     '''
     1. Check positions
@@ -1515,7 +1512,6 @@ def strategy1(user):
     else:
         iLog("strategy1(): Strategy execution is not allowed on this day. Exiting...")
         return
-
 
 def strategy2(user):
     # Do a strangle for price ~200 and keep SL of 70, add position to opposite leg when 50 SL is reached 
@@ -1722,8 +1718,8 @@ while float(datetime.now().strftime("%H%M%S.%f")[:-3]) < 91459.800:
 ########################################################
 # Code block to place orders at immediate market opening
 ########################################################
-if int(datetime.now().strftime("%H%M")) < 1016:
-    exp_dt = cur_expiry_date    # datetime(2025, 5, 22)
+if int(datetime.now().strftime("%H%M")) < 916:
+    exp_dt = cur_expiry_date    # nxt_expiry_date
     
     # === NIFTY CALL
     if flg_NSE_OPN_PE_CE_BOTH=="CE" or flg_NSE_OPN_PE_CE_BOTH=="BOTH":
@@ -1763,7 +1759,7 @@ if int(datetime.now().strftime("%H%M")) < 1016:
     if flg_NSE_OPN_PE_CE_BOTH=="PE" or flg_NSE_OPN_PE_CE_BOTH=="BOTH":
         sleep(10)
         qty = mkt_opn_qty_nifty_pe2
-        pe_price = float(alice.get_scrip_info(tmp_ins_pe)['LTP'] + 100)
+        pe_price = float(alice.get_scrip_info(tmp_ins_pe)['LTP'] + 50)
         alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_pe,quantity = qty,order_type = OrderType.Limit,
             product_type = ProductType.Normal,price = pe_price,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_PE")
 
@@ -1800,8 +1796,8 @@ if int(datetime.now().strftime("%H%M")) < 1016:
 
 # -- End - Temp code to sell option at a particular strike at market opening at market price
 
-print("sys.exit(0)")
-sys.exit(0)
+# print("sys.exit(0)")
+# sys.exit(0)
 
 
 # cfg.set("tokens","session_id",session_id)
