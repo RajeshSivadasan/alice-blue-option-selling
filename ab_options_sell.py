@@ -341,6 +341,11 @@ nifty_avg_margin_req_per_lot =  int(cfg.get("info", "nifty_avg_margin_req_per_lo
 flg_NSE_OPN_PE_CE_BOTH = cfg.get("info", "flg_NSE_OPN_PE_CE_BOTH")  # "CE" | "PE" | "BOTH" | "NONE"
 flg_BSE_OPN_PE_CE_BOTH = cfg.get("info", "flg_BSE_OPN_PE_CE_BOTH")  # "CE" | "PE" | "BOTH" | "NONE"
 
+
+flg_NSE_OPN_TRAN_TYPE = cfg.get("info", "flg_NSE_OPN_TRAN_TYPE")  # "BUY" | "SELL"
+flg_BSE_OPN_TRAN_TYPE = cfg.get("info", "flg_BSE_OPN_TRAN_TYPE")  # "BUY" | "SELL"
+
+
 mkt_opn_qty_nifty_ce = int(cfg.get("info", "mkt_opn_qty_nifty_ce"))
 mkt_opn_qty_nifty_pe = int(cfg.get("info", "mkt_opn_qty_nifty_pe"))
 
@@ -1677,7 +1682,7 @@ sensex_atm = round(int(float(sensex_info['LTP'])),-2)
 
 iLog(f"nifty_atm={nifty_atm} sensex_atm={sensex_atm} \nins_nifty_fut={ins_nifty_fut}")
 
-# exp_dt =   datetime(2025, 7, 17) # cur_expiry_date
+# exp_dt =   cur_expiry_date  #datetime(2025, 7, 17) # cur_expiry_date
 # strike = nifty_atm  # 24900
 # qty = 150
 # is_CE = True   # if CE or PE
@@ -1718,8 +1723,11 @@ while float(datetime.now().strftime("%H%M%S.%f")[:-3]) < 91459.800:
 ########################################################
 # Code block to place orders at immediate market opening
 ########################################################
-if int(datetime.now().strftime("%H%M")) < 916:
+if int(datetime.now().strftime("%H%M")) < 916:     #916
     exp_dt = cur_expiry_date    # nxt_expiry_date
+
+    transaction_type = TransactionType.Sell
+    if flg_NSE_OPN_TRAN_TYPE == 'BUY': transaction_type = TransactionType.Buy
     
     # === NIFTY CALL
     if flg_NSE_OPN_PE_CE_BOTH=="CE" or flg_NSE_OPN_PE_CE_BOTH=="BOTH":
@@ -1728,11 +1736,11 @@ if int(datetime.now().strftime("%H%M")) < 916:
         is_CE = True   # if CE or PE
         tmp_ins_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=exp_dt.strftime("%Y-%m-%d"), is_fut=False,strike=strike, is_CE=is_CE)
 
-        iLog(f"tmp_ins_pe={tmp_ins_ce}")
+        iLog(f"tmp_ins_ce={tmp_ins_ce}")
 
     
-        # alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_ce,quantity = qty,order_type = OrderType.Market,
-        #     product_type = ProductType.Normal,price = 0.0,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_CE")
+        alice.place_order(transaction_type = transaction_type , instrument = tmp_ins_ce,quantity = qty,order_type = OrderType.Market,
+            product_type = ProductType.Normal,price = 0.0,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_CE")
 
     # === NIFTY PUT
     if flg_NSE_OPN_PE_CE_BOTH=="PE" or flg_NSE_OPN_PE_CE_BOTH=="BOTH":
@@ -1742,9 +1750,9 @@ if int(datetime.now().strftime("%H%M")) < 916:
     
         tmp_ins_pe = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=exp_dt.strftime("%Y-%m-%d"), is_fut=False,strike=strike, is_CE=is_CE)
 
-        iLog(f"tmp_ins_ce={tmp_ins_pe}, exp_dt={exp_dt}")
+        iLog(f"tmp_ins_pe={tmp_ins_pe}, exp_dt={exp_dt}")
 
-        alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_pe,quantity = qty,order_type = OrderType.Market,
+        alice.place_order(transaction_type = transaction_type, instrument = tmp_ins_pe,quantity = qty,order_type = OrderType.Market,
             product_type = ProductType.Normal,price = 0.0,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False, order_tag="GM_PE")
 
 
@@ -1752,19 +1760,21 @@ if int(datetime.now().strftime("%H%M")) < 916:
     if flg_NSE_OPN_PE_CE_BOTH=="CE" or flg_NSE_OPN_PE_CE_BOTH=="BOTH":
         sleep(10)   # Wait for 10 seconds before placing the next order
         qty = mkt_opn_qty_nifty_ce2
-        ce_price = float(alice.get_scrip_info(tmp_ins_ce)['LTP'] + 50)
-        # alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_ce,quantity = qty,order_type = OrderType.Limit,
-        #     product_type = ProductType.Normal,price = ce_price,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_CE")
+        ce_price = float(alice.get_scrip_info(tmp_ins_ce)['LTP']) + 50.0
+        alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_ce,quantity = qty,order_type = OrderType.Limit,
+            product_type = ProductType.Normal,price = ce_price,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_CE")
 
     if flg_NSE_OPN_PE_CE_BOTH=="PE" or flg_NSE_OPN_PE_CE_BOTH=="BOTH":
         sleep(10)
         qty = mkt_opn_qty_nifty_pe2
-        pe_price = float(alice.get_scrip_info(tmp_ins_pe)['LTP'] + 50)
+        pe_price = float(alice.get_scrip_info(tmp_ins_pe)['LTP']) + 50.0
         alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_pe,quantity = qty,order_type = OrderType.Limit,
             product_type = ProductType.Normal,price = pe_price,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_PE")
 
 
 
+    transaction_type = TransactionType.Sell
+    if flg_BSE_OPN_TRAN_TYPE == 'BUY': transaction_type = TransactionType.Buy
 
     # === SENSEX CALL
     if flg_BSE_OPN_PE_CE_BOTH=="CE" or flg_BSE_OPN_PE_CE_BOTH=="BOTH":
@@ -1776,7 +1786,7 @@ if int(datetime.now().strftime("%H%M")) < 916:
         iLog(f"tmp_ins_pe={tmp_ins_ce}, exp_dt={dt_sensex_exp}")
 
     
-        alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_ce,quantity = qty,order_type = OrderType.Market,
+        alice.place_order(transaction_type = transaction_type, instrument = tmp_ins_ce,quantity = qty,order_type = OrderType.Market,
             product_type = ProductType.Normal,price = 0.0,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False,order_tag="GM_CE")
 
     # === SENSEX PUT
@@ -1789,7 +1799,7 @@ if int(datetime.now().strftime("%H%M")) < 916:
 
         iLog(f"tmp_ins_ce={tmp_ins_pe}, exp_dt={dt_sensex_exp}")
 
-        alice.place_order(transaction_type = TransactionType.Sell, instrument = tmp_ins_pe,quantity = qty,order_type = OrderType.Market,
+        alice.place_order(transaction_type = transaction_type, instrument = tmp_ins_pe,quantity = qty,order_type = OrderType.Market,
             product_type = ProductType.Normal,price = 0.0,trigger_price = None,stop_loss = None,square_off = None,trailing_sl = None,is_amo = False, order_tag="GM_PE")
 
 
@@ -1830,31 +1840,6 @@ if int(datetime.now().strftime("%H%M")) < 916:
 # subscribe_list = [ins_nifty]    #, ins_nifty_ce, ins_nifty_pe]
 
 
-# strike = nifty_atm + nifty_strike_ce_offset
-# is_CE = True   # if CE or PE
-# ins_nifty_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.strftime("%Y-%m-%d"), is_fut=False,strike=strike, is_CE=is_CE)
-# print(f"ins_nifty_ce={ins_nifty_ce}",flush=True)
-
-# # For Nifty
-# for i in range(1, 5):
-#     strike += 50 
-#     ins_nifty_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.strftime("%Y-%m-%d"), is_fut=False,strike=strike, is_CE=is_CE)
-#     print(f"ins_nifty_ce={ins_nifty_ce}",flush=True)
-#     subscribe_list.append(ins_nifty_ce)
-
-
-
-
-# exp_dt = dt_sensex_exp  # datetime(2025, 6, 10)
-# strike = sensex_atm  + sensex_strike_ce_offset
-# qty = 20
-# is_CE = True   # if CE or PE
-# for i in range(1, 10):
-#     strike += 100 
-#     tmp_ins_ce = alice.get_instrument_for_fno(exch="BFO",symbol='SENSEX', expiry_date=exp_dt.strftime("%Y-%m-%d"), is_fut=False,strike=strike, is_CE=is_CE)
-#     iLog( alice.get_scrip_info(tmp_ins_ce)['LTP'])
-#     print(f"tmp_ins_ce={tmp_ins_ce}",flush=True)
-#     subscribe_list.append(tmp_ins_ce)
 
 
 
