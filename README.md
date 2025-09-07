@@ -1,4 +1,4 @@
-# (Work In Progress) Fully automated Alice Blue Algo Trading program with Python on NSE for Nifty / Banknifty Options Selling
+# Fully automated Alice Blue Algo Trading program with Python on NSE for Nifty / Banknifty Options Selling
 Please use this only for reference and at your own risk. This repository contains python code to perform algo trading on India, NSE through AliceBlue broker. 
 You need to have a valid AliceBlue client ID, password, 2FA authentication password set and API enabled (ask aliceblue support) to get this working.
 This program is developed on Windows 10 and tested on both Windows and AWS linux (ubuntu) platform. This program can be scheduled using crontab in AWS linux free tier to run daily at 9.14 AM. <a href="https://github.com/RajeshSivadasan/AWSScripts">AWS lambda functions</a> can be used to start and stop AWS instances as per the market timings. 
