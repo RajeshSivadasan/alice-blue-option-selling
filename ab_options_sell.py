@@ -69,7 +69,7 @@ from Crypto.Cipher import AES
 import hashlib
 import base64
 import pyotp
-from dateutil.relativedelta import relativedelta, TH
+from dateutil.relativedelta import relativedelta, TU
 
 
 # from nsepy import get_history
@@ -194,6 +194,7 @@ holiday_dates = cfg.get("info", "holiday_dates").split(",")
 
 
 interval_seconds = int(cfg.get("info", "interval_seconds"))   #3
+
 # nifty_sqoff_time = int(cfg.get("info", "nifty_sqoff_time")) #1512 time after which orders not to be processed and open orders to be cancelled
 # bank_sqoff_time = int(cfg.get("info", "bank_sqoff_time")) #2310 time after which orders not to be processed and open orders to be cancelled
 
@@ -290,11 +291,16 @@ dict_nifty_opt_selected = {} # for storing the details of existing older option 
 
 
 
+
+nifty_expiry_day = int(cfg.get("info", "nifty_expiry_day"))
+sensex_expiry_day = int(cfg.get("info", "sensex_expiry_day"))
+
+
 ################################################
 #   Get current/next week/Monthly expiry dates 
 ################################################
 # Standard current and next expiry date
-cur_expiry_date = datetime.today() + timedelta( ((3-datetime.today().weekday()) % 7))
+cur_expiry_date = datetime.today() + timedelta( (((nifty_expiry_day-1)-datetime.today().weekday()) % 7))
 nxt_expiry_date = cur_expiry_date + timedelta(days=7)  # Next week expiry date
 
 
@@ -315,13 +321,13 @@ if dow  in (next_week_expiry_days):         # next_week_expiry_days = 2,3,4
 else:
     expiry_date = cur_expiry_date
 
-# Get last thursday of next month for getting Next month Nifty Future Contract  
-dt_next_exp = ((datetime.today()+ relativedelta(months=1)) + relativedelta(day=31, weekday=TH(-1)))
-while str(dt_next_exp) in holiday_dates:
-    dt_next_exp = dt_next_exp - timedelta(days=1)
+# Get last Tuesday of next month for getting Next month Nifty Future Contract  
+dt_nifty_fut_next_exp = ((datetime.today()+ relativedelta(months=1)) + relativedelta(day=31, weekday=TU(-1)))
+while str(dt_nifty_fut_next_exp) in holiday_dates:
+    dt_nifty_fut_next_exp = dt_nifty_fut_next_exp - timedelta(days=1)
 
-# -- Get sensex expiry date which falls on Tuesday
-dt_sensex_exp = datetime.today() + timedelta( ((1-datetime.today().weekday()) % 7))
+# -- Get sensex expiry date which falls on Thursday of the week
+dt_sensex_exp = datetime.today() + timedelta( (((sensex_expiry_day)-datetime.today().weekday()) % 7))
 while str(dt_sensex_exp) in holiday_dates:
     dt_sensex_exp = dt_sensex_exp - timedelta(days=1)
 
@@ -363,6 +369,12 @@ mkt_opn_sensex_ce_offset = int(cfg.get("info", "mkt_opn_sensex_ce_offset"))
 mkt_opn_sensex_pe_offset = int(cfg.get("info", "mkt_opn_sensex_pe_offset"))
 
 
+sensex_avg_margin_req_per_lot = int(cfg.get("info", "sensex_avg_margin_req_per_lot"))
+sensex_lot_size = int(cfg.get("info", "sensex_lot_size"))   #20
+nifty_lot_size = int(cfg.get("info", "nifty_lot_size"))  #75
+
+nifty_trade_days = cfg.get("info", "nifty_trade_days").split(",")  # Wednesday,Thursday
+sensex_trade_days = cfg.get("info", "sensex_trade_days").split(",")  # Monday,Tuesday
 
 
 
@@ -1361,34 +1373,62 @@ def check_positions(user):
 
     pos = alice_ord.get_netwise_positions() # Returns list of dicts if position is there else returns dict {'emsg': 'No Data', 'stat': 'Not_Ok'}
     if type(pos)==list:
-        df_pos = pd.DataFrame(pos)[['Symbol','Tsym','Netqty','MtoM']]
+        df_pos = pd.DataFrame(pos)[['Symbol','Tsym','Netqty','MtoM','netbuyqty','netsellqty','unrealisedprofitloss','realisedprofitloss']]
         # print(f"{strMsgSuffix}df_pos:=\n{df_pos}",flush=True)
-        
-        df_pos['mtm'] = df_pos.MtoM.str.replace(",","").astype(float)
-        mtm = sum(df_pos['mtm'])
-        pos_nifty = sum(pd.to_numeric(df_pos[df_pos.Symbol=='NIFTY'].Netqty))
-        pos_sensex = sum(pd.to_numeric(df_pos[df_pos.Symbol=='SENSEX'].Netqty))
+        df_pos['mtm'] = df_pos['unrealisedprofitloss'].astype(float) + df_pos['realisedprofitloss'].astype(float)
 
-        pos_total = sum(abs(df_pos.Netqty.astype(int)))
+        for opt in df_pos.itertuples():
+            if int(opt.Netqty) != 0:
+                
+                if int(opt.Netqty) > 0: 
+                    qty = int(opt.netbuyqty)
+                else:
+                    qty = abs(int(opt.netsellqty))
+                
+                if opt.Symbol=='NIFTY':
+                    margin_used =  (qty / nifty_lot_size ) * nifty_avg_margin_req_per_lot
+                
+                elif opt.Symbol=='SENSEX':
+                    margin_used =  (qty / sensex_lot_size ) * sensex_avg_margin_req_per_lot
 
-        # ----------- Need changes for Banknifty as the lot size is 25
-        net_margin_utilised = abs(pos_total/50) * nifty_avg_margin_req_per_lot
-        profit_target = round(net_margin_utilised * (user['profit_target_perc']/100))
+                else:
+                    iLog(f"{strMsgSuffix} Unknown Symbol in position other than nifty or sensex: {opt.Symbol}",3)
+                
+                profit_target = round(margin_used * (user['profit_target_perc']/100))
+                loss_target = round(margin_used * (user['loss_limit_perc']/100))
+                
+                if float(opt.mtm) > profit_target:
+                    iLog(f"{strMsgSuffix} Profit Target achieved for {opt.Tsym},  mtm={opt.mtm}, margin_used={margin_used}, profit_target={profit_target}")
 
-        # Print once every 5 minutes
-        now = datetime.now()
-        if (now.minute % 5 == 0) and (now.second < 10):
-            net_pnl = sum(float(pos1['unrealisedprofitloss']) for pos1 in pos)
+                elif float(opt.mtm) < -loss_target:
+                    iLog(f"{strMsgSuffix} Loss Target reached for {opt.Tsym},  mtm={opt.mtm}, margin_used={margin_used}, loss_target={loss_target}")
 
-            iLog(f"{strMsgSuffix} net_unrealised={net_pnl} mtm={mtm} profit_target={profit_target} net_margin_utilised={net_margin_utilised} pos_nifty={pos_nifty} pos_sensex={pos_sensex}")
+            
+        # df_pos['mtm'] = df_pos.MtoM.str.replace(",","").astype(float)
+        # mtm = sum(df_pos['mtm'])
+        # pos_nifty = sum(pd.to_numeric(df_pos[df_pos.Symbol=='NIFTY'].Netqty))
+        # pos_sensex = sum(pd.to_numeric(df_pos[df_pos.Symbol=='SENSEX'].Netqty))
+
+        # pos_total = sum(abs(df_pos.netbuyqty.astype(int)))
+
+        # # ----------- Need changes for Banknifty as the lot size is 25
+        # net_margin_utilised = abs(pos_total/50) * nifty_avg_margin_req_per_lot
+        # profit_target = round(net_margin_utilised * (user['profit_target_perc']/100))
+
+        # # Print once every 5 minutes
+        # now = datetime.now()
+        # if (now.minute % 5 == 0) and (now.second < 10):
+        #     net_pnl = sum(float(pos1['unrealisedprofitloss']) for pos1 in pos)
+
+        #     iLog(f"{strMsgSuffix} net_unrealised={net_pnl} mtm={mtm} profit_target={profit_target} net_margin_utilised={net_margin_utilised} pos_nifty={pos_nifty} pos_sensex={pos_sensex}")
 
         # Aliceblue.squareoff_positions()
-        if mtm > profit_target:
-            for opt in df_pos.itertuples():
-                # Check if instrument options and position is sell and its mtm is greater than profit target amt
-                tradingsymbol = opt.Tsym
-                qty = opt.Netqty
-                MtoM = float(opt.MtoM.replace(",",""))
+        # if mtm > profit_target:
+        #     for opt in df_pos.itertuples():
+        #         # Check if instrument options and position is sell and its mtm is greater than profit target amt
+        #         tradingsymbol = opt.Tsym
+        #         qty = opt.Netqty
+        #         MtoM = float(opt.MtoM.replace(",",""))
                 # # Get the partial profit booking quantity
                 
                 # Aliceblue.squareoff_positions('NFO',)
@@ -1510,9 +1550,9 @@ def strategy1(user):
     '''
     iLog("In strategy1(): ")
 
-    if dow in (1, 2):   # Monday, Tuesday
+    if str(dow) in sensex_trade_days:   # Monday, Tuesday
         place_sensex_option_orders_fixed(user)
-    elif dow in (3, 4):   # Wednesday,Thursday    
+    elif str(dow) in nifty_trade_days:   # Wednesday,Thursday    
         place_nifty_option_orders_fixed(user)
     else:
         iLog("strategy1(): Strategy execution is not allowed on this day. Exiting...")
@@ -1528,7 +1568,7 @@ def strategy2(user):
     # print(alice_ord) 
 
 
-
+# Websocket related code
 ########################################################################
 #       Alice Blue Socket Events
 ########################################################################
@@ -1667,7 +1707,7 @@ ins_bank = alice.get_instrument_by_symbol('INDICES', 'NIFTY BANK')
 
 
 
-ins_nifty_fut = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=dt_next_exp.strftime("%Y-%m-%d"), is_fut=True,strike=None, is_CE=False)
+ins_nifty_fut = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=dt_nifty_fut_next_exp.strftime("%Y-%m-%d"), is_fut=True,strike=None, is_CE=False)
 
 
 # previous close ??????????????????????????????????????????????????????
@@ -1680,30 +1720,13 @@ sensex_info = alice.get_scrip_info(ins_sensex)
 sensex_atm = round(int(float(sensex_info['LTP'])),-2)
 
 
-iLog(f"nifty_atm={nifty_atm} sensex_atm={sensex_atm} \nins_nifty_fut={ins_nifty_fut}")
-
-# exp_dt =   cur_expiry_date  #datetime(2025, 7, 17) # cur_expiry_date
-# strike = nifty_atm  # 24900
-# qty = 150
-# is_CE = True   # if CE or PE
-# tmp_ins_ce = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=exp_dt.strftime("%Y-%m-%d"), is_fut=False,strike=strike, is_CE=is_CE)
-# iLog( alice.get_scrip_info(tmp_ins_ce)['LTP'])
-
-
-
-
-# exp_dt = dt_sensex_exp  # datetime(2025, 6, 10)
-# strike = sensex_atm  # 24900
-# qty = 150
-# is_CE = True   # if CE or PE
-# tmp_ins_ce = alice.get_instrument_for_fno(exch="BFO",symbol='SENSEX', expiry_date=exp_dt.strftime("%Y-%m-%d"), is_fut=False,strike=strike, is_CE=is_CE)
-# iLog( alice.get_scrip_info(tmp_ins_ce)['LTP'])
+iLog(f"nifty_atm={nifty_atm} sensex_atm={sensex_atm} dt_nifty_fut_next_exp={dt_nifty_fut_next_exp} \nins_nifty_fut={ins_nifty_fut} ")
 
 
 
 # lst_nifty_ltp.append(float(alice.get_scrip_info(ins_nifty)['LTP']))
 
-
+# check_positions(users[0])
 # place_sensex_option_orders_fixed(users[0]) 
 # place_nifty_option_orders_fixed(users[0])
 # sys.exit(0)
@@ -1715,7 +1738,7 @@ iLog(f"nifty_atm={nifty_atm} sensex_atm={sensex_atm} \nins_nifty_fut={ins_nifty_
 # Wait till start of the market
 ################################
 iLog(f"Waiting for market to open...{float(datetime.now().strftime("%H%M%S.%f")[:-3])}")
-while float(datetime.now().strftime("%H%M%S.%f")[:-3]) < 91459.800:
+while float(datetime.now().strftime("%H%M%S.%f")[:-3]) < 91459.900:
     pass
 
 
@@ -1806,68 +1829,7 @@ if int(datetime.now().strftime("%H%M")) < 916:     #916
 
 # -- End - Temp code to sell option at a particular strike at market opening at market price
 
-# print("sys.exit(0)")
-# sys.exit(0)
 
-
-# cfg.set("tokens","session_id",session_id)
-# with open(INI_FILE, 'w') as configfile:
-#     cfg.write(configfile)
-#     configfile.close()
-# print(f"Updated session_id at {datetime.now()}",flush=True)
-
-
-
-# ins_crude = alice.get_instrument_by_symbol('MCX', 'CRUDEOIL22NOVFUT')
-
-# iLog(f"ins_nifty={ins_nifty}")
-# iLog(f"ins_bank={ins_bank}")
-
-
-# # Start Websocket
-# iLog("Starting Websocket.",sendTeleMsg=True)
-
-# alice.start_websocket(socket_open_callback=open_callback, socket_close_callback=close_callback,
-#         socket_error_callback=error_callback, subscription_callback=event_handler_quote_update, run_in_background=True)
-
-
-# # Check with Websocket open status
-# while(socket_opened==False):
-#     pass
-
-
-
-# subscribe_list = [ins_nifty]    #, ins_nifty_ce, ins_nifty_pe]
-
-
-
-
-
-
-
-# strike = nifty_atm - nifty_strike_pe_offset
-# is_CE = False   # if CE or PE
-# ins_nifty_pe = alice.get_instrument_for_fno(exch="NFO",symbol='NIFTY', expiry_date=cur_expiry_date.strftime("%Y-%m-%d"), is_fut=False,strike=strike, is_CE=is_CE)
-
-# print(f"ins_nifty_ce={ins_nifty_ce}, ins_nifty_pe={ins_nifty_pe}",flush=True)
-
-
-# Later add bank nifty support
-# subscribe_list = [ins_nifty]    #, ins_nifty_ce, ins_nifty_pe]
-# print("subscribe_list=",subscribe_list)
-
-# alice.subscribe(subscribe_list)
-# iLog("subscribed to subscribe_list")
-
-
-
-# sucessfully tested order execution on multiple users below 1-July-2024
-# ins_goldm=alice.get_instrument_by_symbol('MCX','GOLDM')
-# place_order(users[0],ins_goldm,1,1.5)
-#place_order(users[1],ins_goldm,1,1.5)
-
-
-# sys.exit(0)
 
 
 #Temp assignment for CE/PE instrument tokens
@@ -1879,17 +1841,6 @@ ins_bank_ce = ins_bank
 ins_bank_pe = ins_bank
 ins_bank_opt = ins_bank
 
-# subscribe_ins()
-
-# Get ATM /(+-offset) option tokens for Nifty and BankNifty
-# get_option_tokens("NIFTY")
-
-
-# iLog("Waiting for 5 seconds till websocket refreshes LTPs")
-# sleep(5)   # Sleep so that tick for the ltp gets accumulated
-
-
-# iLog("Starting tick processing.",sendTeleMsg=True)
 
 strategy1_executed=0
 strategy2_executed=0
@@ -1899,11 +1850,11 @@ strategy2_executed=0
 # get_realtime_config()
 # strategy1(users[0])
 # check_positions(users[0])
-sys.exit(0)
+# sys.exit(0)
 
-#########################################################
-####            MAIN PROGRAM STARTS HERE ...         ####
-#########################################################  
+
+########   MAIN PROGRAM STARTS HERE ########
+
 # Loop to check for realtime config changes, execute strategies and check positions
 cur_HHMM = int(datetime.now().strftime("%H%M"))
 while cur_HHMM > 914 and cur_HHMM<1532: # 1732
